@@ -36,3 +36,7 @@ the prompts it was built from, in order.
 ## 8
 
 > Keeping a copy is cumbersome. I changed the workflow direction in the README, you can delete the original file, commit and push
+
+## 9
+
+> Implement an additional check. If the affected OSM element we're correcting does *not* have a `wikimedia_commons` key with a value, move the *corrected* Wikimedia Commons File link from `image` to `wikimedia_commons`. According to the OSM Wiki, the `wikimedia_commons` link can go to the description title. E.g. broken image (image=https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Strassenschild_Kirchbergerstrasse.jpg/800px-Strassenschild_Kirchbergerstrasse.jpg) would be fixed to correct image (https://commons.wikimedia.org/wiki/File:Strassenschild_Kirchbergerstrasse.jpg), and if no commons-key would go to wikimedia_commons:File:Strassenschild_Kirchbergerstrasse.jpg

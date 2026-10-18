@@ -1,12 +1,23 @@
 # osm-wikimedia-thumbnails-correction-bot
 
-An OpenStreetMap bot that replaces **broken** Wikimedia Commons thumbnail links in
-`image=*` with the file's description page on Commons:
+An OpenStreetMap bot that fixes **broken** Wikimedia Commons thumbnail links in
+`image=*`:
 
 ```
 image=https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Strassenschild_Kirchbergerstrasse.jpg/800px-Strassenschild_Kirchbergerstrasse.jpg
-  →   https://commons.wikimedia.org/wiki/File:Strassenschild_Kirchbergerstrasse.jpg
 ```
+
+- If the element already has `wikimedia_commons=*`, `image=*` is replaced with the
+  file's description page on Commons:
+  ```
+  image=https://commons.wikimedia.org/wiki/File:Strassenschild_Kirchbergerstrasse.jpg
+  ```
+- Otherwise the link is moved to
+  [`wikimedia_commons=*`](https://wiki.openstreetmap.org/wiki/Key:wikimedia_commons)
+  and `image=*` is removed:
+  ```
+  wikimedia_commons=File:Strassenschild_Kirchbergerstrasse.jpg
+  ```
 
 ## Why
 
@@ -38,8 +49,9 @@ Only `image=*` values that are **exactly one** URL of the form
   the original bitmap.
 
 It leaves alone working thumbnails, original-file links (`/commons/<h>/<hh>/…`),
-other wikis (`/wikipedia/de/…`), multiple values (`;`), other keys
-(`wikimedia_commons`, `image:*`, …) and anything it can't parse.
+other wikis (`/wikipedia/de/…`), multiple values (`;`), other keys (`image:*`, …)
+and anything it can't parse. An existing `wikimedia_commons=*` is never changed;
+the key is only added when it is missing or empty.
 
 ## Keeping load low
 

@@ -1,6 +1,14 @@
 import xml.etree.ElementTree as ET
 
-from bot import Edit, Thumb, commons_page_url, is_broken, osm_change_xml, parse_thumb_url
+from bot import (
+    Edit,
+    Thumb,
+    commons_page_url,
+    is_broken,
+    osm_change_xml,
+    parse_thumb_url,
+    tag_changes,
+)
 
 THUMB = (
     "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/"
@@ -82,19 +90,48 @@ def test_url_breaking_characters_are_escaped():
     assert commons_page_url("A b.jpg") == "https://commons.wikimedia.org/wiki/File:A_b.jpg"
 
 
-def test_osm_change_only_touches_image():
-    elem = ET.fromstring(
+NAME = "Strassenschild_Kirchbergerstrasse.jpg"
+PAGE = "https://commons.wikimedia.org/wiki/File:Strassenschild_Kirchbergerstrasse.jpg"
+
+
+def test_tag_changes_moves_to_wikimedia_commons_if_unset():
+    expected = {"image": None, "wikimedia_commons": "File:" + NAME}
+    assert tag_changes({"image": THUMB}, NAME) == expected
+    assert tag_changes({"image": THUMB, "wikimedia_commons": " "}, NAME) == expected
+
+
+def test_tag_changes_keeps_existing_wikimedia_commons():
+    tags = {"image": THUMB, "wikimedia_commons": "Category:Bern"}
+    assert tag_changes(tags, NAME) == {"image": PAGE}
+
+
+def way(*tags):
+    return ET.fromstring(
         '<way id="1" version="3" user="x" uid="1" timestamp="t" visible="true" changeset="9">'
-        '<nd ref="1"/><nd ref="2"/>'
-        f'<tag k="highway" v="residential"/><tag k="image" v="{THUMB}"/></way>'
+        '<nd ref="1"/><nd ref="2"/>' + "".join(f'<tag k="{k}" v="{v}"/>' for k, v in tags) + "</way>"
     )
-    new = "https://commons.wikimedia.org/wiki/File:Strassenschild_Kirchbergerstrasse.jpg"
-    root = ET.fromstring(osm_change_xml([Edit(elem, THUMB, new)], 42))
-    way = root.find("modify/way")
-    assert way.attrib == {"id": "1", "version": "3", "changeset": "42"}
-    assert [n.get("ref") for n in way.findall("nd")] == ["1", "2"]
-    assert {t.get("k"): t.get("v") for t in way.findall("tag")} == {
+
+
+def change(elem, changes):
+    root = ET.fromstring(osm_change_xml([Edit(elem, THUMB, changes)], 42))
+    w = root.find("modify/way")
+    assert w.attrib == {"id": "1", "version": "3", "changeset": "42"}
+    assert [n.get("ref") for n in w.findall("nd")] == ["1", "2"]
+    return {t.get("k"): t.get("v") for t in w.findall("tag")}
+
+
+def test_osm_change_fixes_image():
+    elem = way(("highway", "residential"), ("image", THUMB), ("wikimedia_commons", "Category:Bern"))
+    assert change(elem, {"image": PAGE}) == {
         "highway": "residential",
-        "image": new,
+        "image": PAGE,
+        "wikimedia_commons": "Category:Bern",
     }
 
+
+def test_osm_change_moves_to_wikimedia_commons():
+    elem = way(("highway", "residential"), ("image", THUMB))
+    assert change(elem, tag_changes({"image": THUMB}, NAME)) == {
+        "highway": "residential",
+        "wikimedia_commons": "File:" + NAME,
+    }

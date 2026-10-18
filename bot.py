@@ -5,6 +5,10 @@ file's description page on Commons.
     image=https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Foo.jpg/800px-Foo.jpg
  -> image=https://commons.wikimedia.org/wiki/File:Foo.jpg
 
+If the element has no `wikimedia_commons=*` yet, the link is moved there instead:
+
+ -> wikimedia_commons=File:Foo.jpg   (and image=* is removed)
+
 Wikimedia only serves thumbnails in a fixed set of widths (and, for bitmaps, no wider
 than the original); other hotlinked thumbnails return HTTP 400. The description page
 also carries author and license information, which a bare thumbnail does not.
@@ -46,8 +50,8 @@ OSM_API = os.environ.get("OSM_API", "https://api.openstreetmap.org/api/0.6")
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 
 CHANGESET_COMMENT = (
-    "Replace broken Wikimedia Commons thumbnail URLs in image=* "
-    "with links to the file description page on Commons"
+    "Fix broken Wikimedia Commons thumbnail URLs in image=*: link the file description "
+    "page on Commons, or move it to wikimedia_commons=* where that is not set yet"
 )
 
 # The whole value must be exactly one Commons thumbnail URL. The file name is taken
@@ -222,12 +226,23 @@ def lookup_commons_files(s: requests.Session, names: list[str]) -> dict[str, tup
 @dataclass
 class Edit:
     elem: ET.Element
-    old: str
-    new: str
+    old: str  # the broken image=* value
+    changes: dict[str, str | None]  # new tag values, None = remove the tag
+
+    def describe(self) -> list[str]:
+        return [f"{k} removed" if v is None else f"{k}={v}" for k, v in self.changes.items()]
 
     @property
     def ref(self) -> str:
         return f"{self.elem.tag}/{self.elem.get('id')}"
+
+
+def tag_changes(tags: dict[str, str], filename: str) -> dict[str, str | None]:
+    """Fix a broken image=* link to the Commons file `filename`: link the description
+    page in image=*, or, if wikimedia_commons=* isn't set yet, move it there."""
+    if tags.get("wikimedia_commons", "").strip():
+        return {"image": commons_page_url(filename)}
+    return {"image": None, "wikimedia_commons": f"File:{filename}"}
 
 
 def fetch_osm_elements(s: requests.Session, kind: str, ids: list[int]) -> list[ET.Element]:
@@ -269,7 +284,7 @@ def plan_edits(s: requests.Session, candidates: list[dict], max_edits: int) -> R
     log(f"{len(thumbs)} elements have a parseable Commons thumbnail URL")
 
     # Ask Commons 50 files at a time, and stop as soon as we have enough broken links.
-    broken = {}  # (type, id) -> (url, new url)
+    broken = {}  # (type, id) -> (url, current file name)
     names = sorted({t.name for _, t in thumbs.values()})
     checked = set()
     for i in range(0, len(names), 50):
@@ -288,7 +303,7 @@ def plan_edits(s: requests.Session, candidates: list[dict], max_edits: int) -> R
                 continue
             current_name, info = files[thumb.name]
             if is_broken(thumb, info):
-                broken[key] = (url, commons_page_url(current_name))
+                broken[key] = (url, current_name)
             else:
                 report.working.append(f"{osm_url(ref)}  {thumb.width}px still served: {url}")
     report.unchecked = len(thumbs) - len(checked)
@@ -305,19 +320,22 @@ def plan_edits(s: requests.Session, candidates: list[dict], max_edits: int) -> R
     for elem in elements:
         key = (elem.tag, int(elem.get("id")))
         found.add(key)
-        old, new = broken[key]
-        tag = elem.find("tag[@k='image']")
-        if tag is None or tag.get("v") != old:
+        old, filename = broken[key]
+        tags = {t.get("k"): t.get("v") for t in elem.findall("tag")}
+        if tags.get("image") != old:
             report.changed.append(f"{osm_url(elem.tag + '/' + elem.get('id'))}  image=* changed since the Overpass snapshot")
             continue
-        report.edits.append(Edit(elem, old, new))
+        report.edits.append(Edit(elem, old, tag_changes(tags, filename)))
     for key in sorted(set(broken) - found):
         report.changed.append(f"{osm_url(f'{key[0]}/{key[1]}')}  deleted since the Overpass snapshot")
     return report
 
 
 def edit_lines(edits: list[Edit]) -> list[str]:
-    return [f"{osm_url(e.ref)}\n    - {e.old}\n    + {e.new}" for e in edits]
+    return [
+        f"{osm_url(e.ref)}\n    - image={e.old}" + "".join(f"\n    + {d}" for d in e.describe())
+        for e in edits
+    ]
 
 
 def write_job_summary(report: Report, area: str, applied: bool, changeset: int | None):
@@ -341,10 +359,11 @@ def write_job_summary(report: Report, area: str, applied: bool, changeset: int |
         "",
     ]
     if report.edits:
-        out += ["| element | width | old `image` (broken) | new `image` |", "|---|---:|---|---|"]
+        out += ["| element | width | old `image` (broken) | new tags |", "|---|---:|---|---|"]
         for e in report.edits:
             t = parse_thumb_url(e.old)
-            out.append(f"| [{e.ref}]({osm_url(e.ref)}) | {t.width}px | [thumbnail]({e.old}) | {e.new} |")
+            new = "<br>".join(f"`{d}`" for d in e.describe())
+            out.append(f"| [{e.ref}]({osm_url(e.ref)}) | {t.width}px | [thumbnail]({e.old}) | {new} |")
     with open(path, "a", encoding="utf-8") as f:
         f.write("\n".join(out) + "\n")
 
@@ -357,7 +376,15 @@ def osm_change_xml(edits: list[Edit], changeset_id: int) -> bytes:
         for attr in ("user", "uid", "timestamp", "visible"):
             elem.attrib.pop(attr, None)
         elem.set("changeset", str(changeset_id))
-        elem.find("tag[@k='image']").set("v", e.new)
+        for k, v in e.changes.items():
+            tag = elem.find(f"tag[@k='{k}']")
+            if v is None:
+                if tag is not None:
+                    elem.remove(tag)
+            elif tag is None:
+                ET.SubElement(elem, "tag", k=k, v=v)
+            else:
+                tag.set("v", v)
         modify.append(elem)
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
@@ -426,7 +453,7 @@ def main(argv=None) -> int:
     log_group(f"Skipped, changed in OSM meanwhile ({len(report.changed)})", report.changed)
     if args.report:
         with open(args.report, "w") as f:
-            json.dump([{"element": e.ref, "old": e.old, "new": e.new} for e in edits], f, indent=2, ensure_ascii=False)
+            json.dump([{"element": e.ref, "old_image": e.old, "changes": e.changes} for e in edits], f, indent=2, ensure_ascii=False)
 
     cs_id = None
     if edits and args.apply:
