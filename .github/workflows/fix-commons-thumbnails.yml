@@ -1,0 +1,66 @@
+name: Fix Commons thumbnail links
+
+on:
+  schedule:
+    - cron: "17 3 * * 1" # weekly, Monday 03:17 UTC (off the full hour to spread load)
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Upload edits to OSM (otherwise dry run)"
+        type: boolean
+        default: false
+      area:
+        description: 'ISO3166-1 country code, or "world"'
+        default: "CH"
+      max_edits:
+        description: "Maximum number of edits"
+        default: "200"
+
+concurrency:
+  group: osm-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest
+      - run: pytest -q
+
+  run:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Run bot
+        env:
+          OSM_ACCESS_TOKEN: ${{ secrets.OSM_ACCESS_TOKEN }}
+          AREA: ${{ inputs.area || vars.AREA || 'CH' }}
+          MAX_EDITS: ${{ inputs.max_edits || vars.MAX_EDITS || '200' }}
+          CHANGESET_DESCRIPTION_URL: ${{ vars.CHANGESET_DESCRIPTION_URL }}
+          BOT_USER_AGENT: wikimedia-thumbnails-osm-bot/1.0 (https://github.com/${{ github.repository }})
+          # Scheduled runs upload only once the repository variable BOT_ENABLED is "true".
+          APPLY: ${{ (github.event_name == 'schedule' && vars.BOT_ENABLED == 'true') || inputs.apply == true }}
+        run: |
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          python bot.py --area "$AREA" --max-edits "$MAX_EDITS" --report report.json \
+            $([ "$APPLY" = "true" ] && echo --apply) 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: report
+          path: report.json
+          if-no-files-found: ignore
