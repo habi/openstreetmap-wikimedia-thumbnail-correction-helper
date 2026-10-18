@@ -19,9 +19,8 @@ always works, and it shows the author and license, which a bare thumbnail does n
 
 ## Workflow
 
-<!-- Copy of workflow.mmd (GitHub can't include files); test_bot.py checks they match. -->
 ```mermaid
-graph TD
+graph LR
     nwr[OSM element with Wikimedia Commons *file* link] --> check[Is the `image` link working?]
     check -- No --> correct[Find correct Wikimedia Commons page] --> commons
     check -- Yes --> commons[Does the element have a `wikimedia_commons` value?] -- No --> move[Move direct `image`-link to `wikimedia_commons`-value] --> Done

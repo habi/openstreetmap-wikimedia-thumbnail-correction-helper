@@ -32,3 +32,7 @@ the prompts it was built from, in order.
 ## 7
 
 > After a suggestion in the forum I made a workflow in Mermaid in the repository (workflow.mmd). Can you *embed* this in the README if possible?
+
+## 8
+
+> Keeping a copy is cumbersome. I changed the workflow direction in the README, you can delete the original file, commit and push

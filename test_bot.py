@@ -98,10 +98,3 @@ def test_osm_change_only_touches_image():
         "image": new,
     }
 
-
-def test_readme_embeds_workflow_diagram():
-    from pathlib import Path
-
-    here = Path(__file__).parent
-    mmd = (here / "workflow.mmd").read_text().strip()
-    assert f"```mermaid\n{mmd}\n```" in (here / "README.md").read_text()
