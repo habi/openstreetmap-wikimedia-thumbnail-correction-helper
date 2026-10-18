@@ -7,17 +7,23 @@ An OpenStreetMap bot that fixes **broken** Wikimedia Commons thumbnail links in
 image=https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Strassenschild_Kirchbergerstrasse.jpg/800px-Strassenschild_Kirchbergerstrasse.jpg
 ```
 
-- If the element already has `wikimedia_commons=*`, `image=*` is replaced with the
-  file's description page on Commons:
+- If the element has no
+  [`wikimedia_commons=*`](https://wiki.openstreetmap.org/wiki/Key:wikimedia_commons),
+  the link is moved there (as the file title, with spaces like the OSM wiki examples)
+  and `image=*` is removed:
+  ```
+  wikimedia_commons=File:Strassenschild Kirchbergerstrasse.jpg
+  ```
+- If `wikimedia_commons=*` already names the same file, `image=*` is redundant and is
+  removed.
+- If `wikimedia_commons=*` names something else (usually a `Category:`), `image=*` is
+  replaced with the file's description page on Commons:
   ```
   image=https://commons.wikimedia.org/wiki/File:Strassenschild_Kirchbergerstrasse.jpg
   ```
-- Otherwise the link is moved to
-  [`wikimedia_commons=*`](https://wiki.openstreetmap.org/wiki/Key:wikimedia_commons)
-  and `image=*` is removed:
-  ```
-  wikimedia_commons=File:Strassenschild_Kirchbergerstrasse.jpg
-  ```
+
+Elements whose thumbnail still works are not touched, so no element version is
+increased without need.
 
 ## Why
 

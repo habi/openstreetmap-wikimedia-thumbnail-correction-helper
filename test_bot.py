@@ -7,6 +7,7 @@ from bot import (
     is_broken,
     osm_change_xml,
     parse_thumb_url,
+    same_file,
     tag_changes,
 )
 
@@ -95,7 +96,7 @@ PAGE = "https://commons.wikimedia.org/wiki/File:Strassenschild_Kirchbergerstrass
 
 
 def test_tag_changes_moves_to_wikimedia_commons_if_unset():
-    expected = {"image": None, "wikimedia_commons": "File:" + NAME}
+    expected = {"image": None, "wikimedia_commons": "File:Strassenschild Kirchbergerstrasse.jpg"}
     assert tag_changes({"image": THUMB}, NAME) == expected
     assert tag_changes({"image": THUMB, "wikimedia_commons": " "}, NAME) == expected
 
@@ -103,6 +104,29 @@ def test_tag_changes_moves_to_wikimedia_commons_if_unset():
 def test_tag_changes_keeps_existing_wikimedia_commons():
     tags = {"image": THUMB, "wikimedia_commons": "Category:Bern"}
     assert tag_changes(tags, NAME) == {"image": PAGE}
+    tags = {"image": THUMB, "wikimedia_commons": "File:Other.jpg"}
+    assert tag_changes(tags, NAME) == {"image": PAGE}
+
+
+def test_tag_changes_drops_image_if_wikimedia_commons_names_same_file():
+    for commons in [
+        "File:Strassenschild Kirchbergerstrasse.jpg",
+        "File:Strassenschild_Kirchbergerstrasse.jpg",
+        "file:strassenschild Kirchbergerstrasse.jpg",
+        "Strassenschild Kirchbergerstrasse.jpg",
+        PAGE,
+    ]:
+        tags = {"image": THUMB, "wikimedia_commons": commons}
+        assert tag_changes(tags, NAME) == {"image": None}, commons
+    # file renamed on Commons, wikimedia_commons still has the old name
+    tags = {"image": THUMB, "wikimedia_commons": "File:Old name.jpg"}
+    assert tag_changes(tags, NAME, "Old_name.jpg") == {"image": None}
+
+
+def test_same_file():
+    assert same_file("File:A_b.jpg", "https://commons.wikimedia.org/wiki/File:A%20b.jpg")
+    assert not same_file("File:A b.jpg", "File:A c.jpg")
+    assert not same_file("File:A b.jpg", "File:A B.jpg")  # only the first letter is case-insensitive
 
 
 def way(*tags):
@@ -133,5 +157,12 @@ def test_osm_change_moves_to_wikimedia_commons():
     elem = way(("highway", "residential"), ("image", THUMB))
     assert change(elem, tag_changes({"image": THUMB}, NAME)) == {
         "highway": "residential",
-        "wikimedia_commons": "File:" + NAME,
+        "wikimedia_commons": "File:Strassenschild Kirchbergerstrasse.jpg",
+    }
+
+
+def test_osm_change_drops_redundant_image():
+    elem = way(("image", THUMB), ("wikimedia_commons", "File:Strassenschild Kirchbergerstrasse.jpg"))
+    assert change(elem, {"image": None}) == {
+        "wikimedia_commons": "File:Strassenschild Kirchbergerstrasse.jpg"
     }

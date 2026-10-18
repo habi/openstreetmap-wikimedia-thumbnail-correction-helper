@@ -5,9 +5,13 @@ file's description page on Commons.
     image=https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Foo.jpg/800px-Foo.jpg
  -> image=https://commons.wikimedia.org/wiki/File:Foo.jpg
 
-If the element has no `wikimedia_commons=*` yet, the link is moved there instead:
+If the element has no `wikimedia_commons=*` yet, the link is moved there instead,
+and if `wikimedia_commons=*` already names the same file, image=* is just removed:
 
  -> wikimedia_commons=File:Foo.jpg   (and image=* is removed)
+
+Elements whose thumbnail still works are not touched, so no version is bumped
+without need.
 
 Wikimedia only serves thumbnails in a fixed set of widths (and, for bitmaps, no wider
 than the original); other hotlinked thumbnails return HTTP 400. The description page
@@ -237,12 +241,33 @@ class Edit:
         return f"{self.elem.tag}/{self.elem.get('id')}"
 
 
-def tag_changes(tags: dict[str, str], filename: str) -> dict[str, str | None]:
-    """Fix a broken image=* link to the Commons file `filename`: link the description
-    page in image=*, or, if wikimedia_commons=* isn't set yet, move it there."""
-    if tags.get("wikimedia_commons", "").strip():
-        return {"image": commons_page_url(filename)}
-    return {"image": None, "wikimedia_commons": f"File:{filename}"}
+def same_file(a: str, b: str) -> bool:
+    """Whether two Commons file references (title, File: title or URL) name the same file."""
+
+    def norm(ref: str) -> str:
+        ref = unquote(ref.strip()).replace("_", " ")
+        ref = re.sub(r"^https?://commons\.(m\.)?wikimedia\.org/wiki/", "", ref)
+        ref = re.sub(r"^(File|Image):", "", ref, flags=re.IGNORECASE).strip()
+        return ref[:1].upper() + ref[1:]  # MediaWiki ignores the case of the first letter
+
+    return norm(a) == norm(b)
+
+
+def tag_changes(tags: dict[str, str], filename: str, *aliases: str) -> dict[str, str | None]:
+    """Fix a broken image=* link to the Commons file `filename` (also known as
+    `aliases`, e.g. its name before a rename):
+
+    * wikimedia_commons=* not set: move the link there, as File:<title> with spaces
+      like the OSM wiki examples;
+    * wikimedia_commons=* names the same file: image=* is redundant, remove it;
+    * wikimedia_commons=* names something else: link the description page in image=*.
+    """
+    commons = tags.get("wikimedia_commons", "").strip()
+    if not commons:
+        return {"image": None, "wikimedia_commons": "File:" + filename.replace("_", " ")}
+    if any(same_file(commons, name) for name in (filename, *aliases)):
+        return {"image": None}
+    return {"image": commons_page_url(filename)}
 
 
 def fetch_osm_elements(s: requests.Session, kind: str, ids: list[int]) -> list[ET.Element]:
@@ -303,7 +328,7 @@ def plan_edits(s: requests.Session, candidates: list[dict], max_edits: int) -> R
                 continue
             current_name, info = files[thumb.name]
             if is_broken(thumb, info):
-                broken[key] = (url, current_name)
+                broken[key] = (url, current_name, thumb.name)
             else:
                 report.working.append(f"{osm_url(ref)}  {thumb.width}px still served: {url}")
     report.unchecked = len(thumbs) - len(checked)
@@ -320,12 +345,12 @@ def plan_edits(s: requests.Session, candidates: list[dict], max_edits: int) -> R
     for elem in elements:
         key = (elem.tag, int(elem.get("id")))
         found.add(key)
-        old, filename = broken[key]
+        old, filename, old_name = broken[key]
         tags = {t.get("k"): t.get("v") for t in elem.findall("tag")}
         if tags.get("image") != old:
             report.changed.append(f"{osm_url(elem.tag + '/' + elem.get('id'))}  image=* changed since the Overpass snapshot")
             continue
-        report.edits.append(Edit(elem, old, tag_changes(tags, filename)))
+        report.edits.append(Edit(elem, old, tag_changes(tags, filename, old_name)))
     for key in sorted(set(broken) - found):
         report.changed.append(f"{osm_url(f'{key[0]}/{key[1]}')}  deleted since the Overpass snapshot")
     return report
