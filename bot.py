@@ -39,7 +39,7 @@ import requests
 
 USER_AGENT = os.environ.get(
     "BOT_USER_AGENT",
-    "wikimedia-thumbnails-osm-bot/1.0 (https://github.com/habi/wikimedia-thumbnails)",
+    "wikimedia-thumbnails-osm-bot/1.0 (https://github.com/habi/osm-wikimedia-thumbnails-correction-bot)",
 )
 OVERPASS_URL = os.environ.get("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
 OSM_API = os.environ.get("OSM_API", "https://api.openstreetmap.org/api/0.6")
