@@ -28,3 +28,7 @@ the prompts it was built from, in order.
 ## 6
 
 > Please output what is done (or would be done) in the github action log, so it can be checked.
+
+## 7
+
+> After a suggestion in the forum I made a workflow in Mermaid in the repository (workflow.mmd). Can you *embed* this in the README if possible?

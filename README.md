@@ -17,6 +17,17 @@ Wikimedia now only serves hotlinked thumbnails in the
 HTTP 400, so thousands of `image=*` tags are dead links. The description page
 always works, and it shows the author and license, which a bare thumbnail does not.
 
+## Workflow
+
+<!-- Copy of workflow.mmd (GitHub can't include files); test_bot.py checks they match. -->
+```mermaid
+graph TD
+    nwr[OSM element with Wikimedia Commons *file* link] --> check[Is the `image` link working?]
+    check -- No --> correct[Find correct Wikimedia Commons page] --> commons
+    check -- Yes --> commons[Does the element have a `wikimedia_commons` value?] -- No --> move[Move direct `image`-link to `wikimedia_commons`-value] --> Done
+    commons -- Yes --> Done
+```
+
 ## What it touches
 
 Only `image=*` values that are **exactly one** URL of the form
