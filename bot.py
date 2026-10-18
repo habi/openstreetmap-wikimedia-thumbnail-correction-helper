@@ -37,6 +37,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -45,10 +46,28 @@ from urllib.parse import quote, unquote
 
 import requests
 
-USER_AGENT = os.environ.get(
-    "BOT_USER_AGENT",
-    "wikimedia-thumbnails-osm-bot/1.0 (https://github.com/habi/osm-wikimedia-thumbnails-correction-bot)",
-)
+REPO_URL = "https://github.com/habi/openstreetmap-wikimedia-thumbnail-correction-helper"
+
+
+def commit_hash() -> str:
+    """Short hash of the running version: from GitHub Actions, else from the checkout."""
+    sha = os.environ.get("GITHUB_SHA")
+    if not sha:
+        try:
+            sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=os.path.dirname(os.path.abspath(__file__)),
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+        except (OSError, subprocess.CalledProcessError):
+            sha = "unknown"
+    return sha[:7]
+
+
+# Sent as HTTP User-Agent and used as created_by=* on changesets.
+USER_AGENT = f"owtch@{commit_hash()} ({REPO_URL})"
 OVERPASS_URL = os.environ.get("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
 OSM_API = os.environ.get("OSM_API", "https://api.openstreetmap.org/api/0.6")
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"

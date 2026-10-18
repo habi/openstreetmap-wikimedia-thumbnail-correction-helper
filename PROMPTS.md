@@ -46,3 +46,7 @@ the prompts it was built from, in order.
 > Leave working image links for the moment. We're only increasing the element version if necessary.
 > Spaces are good, as this is also the OSM Wiki example.
 > If the corrected `image` link points to the same item as already given in `wikimedia_commons`, then you can simply remove the `image` tag.
+
+## 11
+
+> Rename the repository to openstreetmap-wikimedia-thumbnail-correction-helper. Change the `created_by` USER_AGENT to "owtch@COMMITHASH (GITHUBLINK)" where the COMMIT has points to the has of the current version and GITHBLINK is the updated URL.

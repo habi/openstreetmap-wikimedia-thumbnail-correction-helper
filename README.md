@@ -1,4 +1,4 @@
-# osm-wikimedia-thumbnails-correction-bot
+# openstreetmap-wikimedia-thumbnail-correction-helper
 
 An OpenStreetMap bot that fixes **broken** Wikimedia Commons thumbnail links in
 `image=*`:

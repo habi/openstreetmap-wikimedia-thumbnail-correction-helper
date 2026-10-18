@@ -50,7 +50,6 @@ jobs:
           AREA: ${{ inputs.area || vars.AREA || 'CH' }}
           MAX_EDITS: ${{ inputs.max_edits || vars.MAX_EDITS || '200' }}
           CHANGESET_DESCRIPTION_URL: ${{ vars.CHANGESET_DESCRIPTION_URL }}
-          BOT_USER_AGENT: wikimedia-thumbnails-osm-bot/1.0 (https://github.com/${{ github.repository }})
           # Scheduled runs upload only once the repository variable BOT_ENABLED is "true".
           APPLY: ${{ (github.event_name == 'schedule' && vars.BOT_ENABLED == 'true') || inputs.apply == true }}
         # Every decision is in the log; the run's summary page has a table of all edits.
