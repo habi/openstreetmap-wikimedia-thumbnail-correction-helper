@@ -54,8 +54,17 @@ pytest -q
 ## GitHub Action
 
 `.github/workflows/fix-commons-thumbnails.yml` runs the tests and then the bot every
-Monday, and can also be started manually (*Actions → Run workflow*). The planned
-edits are attached to each run as `report.json` and shown in the job summary.
+Monday, and can also be started manually (*Actions → Run workflow*).
+
+Every run can be checked afterwards:
+
+- **Log** of the *Run bot* step: every element looked at, grouped (collapsible) into
+  *would edit* / *edited in changeset N* (with old → new value), *left alone,
+  thumbnail still works*, *skipped, file not on Commons* and *skipped, changed in
+  OSM meanwhile*, each with a link to the element, followed by a one-line summary.
+- **Summary page** of the run: counts, the changeset link, and a table of all
+  edits with links to the element, the broken thumbnail and the new Commons page.
+- **Artifact** `report.json`: the edits as machine-readable JSON.
 
 Setup:
 

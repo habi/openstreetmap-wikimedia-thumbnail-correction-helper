@@ -24,3 +24,7 @@ the prompts it was built from, in order.
 > Keep the prompts file updated, so the history is *always* kept. Now upload the repository to Github, to a new repo (habi/osm-wikimedia-thumbnails-correction-bot)
 
 (Asked whether public or private: **public**.)
+
+## 7
+
+> Please output what is done (or would be done) in the github action log, so it can be checked.

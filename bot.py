@@ -69,6 +69,25 @@ def log(*args):
     print(*args, file=sys.stderr, flush=True)
 
 
+IN_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
+
+
+def log_group(title: str, lines: list[str]):
+    """Log a list, collapsible in the GitHub Actions log."""
+    if IN_ACTIONS:
+        log(f"::group::{title}")
+    else:
+        log(f"\n{title}")
+    for line in lines:
+        log(f"  {line}")
+    if IN_ACTIONS:
+        log("::endgroup::")
+
+
+def osm_url(ref: str) -> str:
+    return f"https://www.openstreetmap.org/{ref}"
+
+
 def session() -> requests.Session:
     s = requests.Session()
     s.headers["User-Agent"] = USER_AGENT
@@ -228,7 +247,19 @@ def fetch_osm_elements(s: requests.Session, kind: str, ids: list[int]) -> list[E
     return out
 
 
-def plan_edits(s: requests.Session, candidates: list[dict], max_edits: int) -> list[Edit]:
+@dataclass
+class Report:
+    """What happened to every element the bot looked at, for the log and job summary."""
+
+    edits: list[Edit]
+    working: list[str]  # still served, left alone
+    not_found: list[str]  # file deleted on Commons
+    changed: list[str]  # image=* changed since the Overpass snapshot
+    unchecked: int  # not looked at because of --max-edits
+
+
+def plan_edits(s: requests.Session, candidates: list[dict], max_edits: int) -> Report:
+    report = Report([], [], [], [], 0)
     thumbs = {}  # (type, id) -> (url, Thumb)
     for c in candidates:
         url = c.get("tags", {}).get("image", "")
@@ -240,6 +271,7 @@ def plan_edits(s: requests.Session, candidates: list[dict], max_edits: int) -> l
     # Ask Commons 50 files at a time, and stop as soon as we have enough broken links.
     broken = {}  # (type, id) -> (url, new url)
     names = sorted({t.name for _, t in thumbs.values()})
+    checked = set()
     for i in range(0, len(names), 50):
         if len(broken) >= max_edits:
             break
@@ -249,12 +281,17 @@ def plan_edits(s: requests.Session, candidates: list[dict], max_edits: int) -> l
         for key, (url, thumb) in sorted(thumbs.items()):
             if thumb.name not in names[i : i + 50] or len(broken) >= max_edits:
                 continue
+            checked.add(key)
+            ref = f"{key[0]}/{key[1]}"
             if thumb.name not in files:
-                log(f"  skip {key[0]}/{key[1]}: File:{thumb.name} not found on Commons")
+                report.not_found.append(f"{osm_url(ref)}  File:{thumb.name} does not exist on Commons")
                 continue
             current_name, info = files[thumb.name]
             if is_broken(thumb, info):
                 broken[key] = (url, commons_page_url(current_name))
+            else:
+                report.working.append(f"{osm_url(ref)}  {thumb.width}px still served: {url}")
+    report.unchecked = len(thumbs) - len(checked)
     log(f"{len(broken)} of them are broken thumbnails (limit {max_edits})")
 
     # Re-read the live data: Overpass may lag behind the main database.
@@ -264,15 +301,52 @@ def plan_edits(s: requests.Session, candidates: list[dict], max_edits: int) -> l
         if ids:
             elements += fetch_osm_elements(s, kind, ids)
 
-    edits = []
+    found = set()
     for elem in elements:
-        old, new = broken[(elem.tag, int(elem.get("id")))]
+        key = (elem.tag, int(elem.get("id")))
+        found.add(key)
+        old, new = broken[key]
         tag = elem.find("tag[@k='image']")
         if tag is None or tag.get("v") != old:
-            log(f"  skip {elem.tag}/{elem.get('id')}: image=* changed since the Overpass snapshot")
+            report.changed.append(f"{osm_url(elem.tag + '/' + elem.get('id'))}  image=* changed since the Overpass snapshot")
             continue
-        edits.append(Edit(elem, old, new))
-    return edits
+        report.edits.append(Edit(elem, old, new))
+    for key in sorted(set(broken) - found):
+        report.changed.append(f"{osm_url(f'{key[0]}/{key[1]}')}  deleted since the Overpass snapshot")
+    return report
+
+
+def edit_lines(edits: list[Edit]) -> list[str]:
+    return [f"{osm_url(e.ref)}\n    - {e.old}\n    + {e.new}" for e in edits]
+
+
+def write_job_summary(report: Report, area: str, applied: bool, changeset: int | None):
+    """Markdown overview on the GitHub Actions run page, with links to check every edit."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    out = [f"## Commons thumbnail fix: area `{area}`, {'uploaded' if applied else 'dry run'}\n"]
+    if changeset:
+        out.append(f"Changeset: https://www.openstreetmap.org/changeset/{changeset}\n")
+    elif report.edits:
+        out.append("**Dry run, nothing was uploaded.** These edits would be made:\n")
+    out += [
+        "| | elements |",
+        "|---|---:|",
+        f"| {'edited' if applied else 'to edit'} (broken thumbnail) | {len(report.edits)} |",
+        f"| left alone, thumbnail still works | {len(report.working)} |",
+        f"| skipped, file not on Commons | {len(report.not_found)} |",
+        f"| skipped, changed in OSM meanwhile | {len(report.changed)} |",
+        f"| not checked this run (limit reached) | {report.unchecked} |",
+        "",
+    ]
+    if report.edits:
+        out += ["| element | width | old `image` (broken) | new `image` |", "|---|---:|---|---|"]
+        for e in report.edits:
+            t = parse_thumb_url(e.old)
+            out.append(f"| [{e.ref}]({osm_url(e.ref)}) | {t.width}px | [thumbnail]({e.old}) | {e.new} |")
+    with open(path, "a", encoding="utf-8") as f:
+        f.write("\n".join(out) + "\n")
 
 
 def osm_change_xml(edits: list[Edit], changeset_id: int) -> bytes:
@@ -344,22 +418,34 @@ def main(argv=None) -> int:
         return 2
 
     s = session()
-    edits = plan_edits(s, find_candidates(s, args.area), args.max_edits)
+    report = plan_edits(s, find_candidates(s, args.area), args.max_edits)
+    edits = report.edits
 
-    log(f"\n{len(edits)} edits planned:")
-    for e in edits:
-        log(f"  {e.ref}\n    - {e.old}\n    + {e.new}")
+    log_group(f"Left alone, thumbnail still works ({len(report.working)})", report.working)
+    log_group(f"Skipped, file not on Commons ({len(report.not_found)})", report.not_found)
+    log_group(f"Skipped, changed in OSM meanwhile ({len(report.changed)})", report.changed)
     if args.report:
         with open(args.report, "w") as f:
             json.dump([{"element": e.ref, "old": e.old, "new": e.new} for e in edits], f, indent=2, ensure_ascii=False)
 
-    if not edits:
-        return 0
-    if not args.apply:
-        log("\nDry run, nothing uploaded. Use --apply to upload.")
-        return 0
-    cs_id = upload(s, edits, token)
-    print(f"https://www.openstreetmap.org/changeset/{cs_id}")
+    cs_id = None
+    if edits and args.apply:
+        cs_id = upload(s, edits, token)
+        log_group(f"Edited in changeset {cs_id} ({len(edits)})", edit_lines(edits))
+    else:
+        log_group(f"Would edit, dry run ({len(edits)})", edit_lines(edits))
+
+    log(
+        f"\nSummary for area {args.area}: "
+        f"{len(edits)} {'edited' if cs_id else 'to edit'}, "
+        f"{len(report.working)} still working, {len(report.not_found)} file missing, "
+        f"{len(report.changed)} changed meanwhile, {report.unchecked} not checked (limit reached)."
+    )
+    if cs_id:
+        log(f"Changeset: https://www.openstreetmap.org/changeset/{cs_id}")
+    elif edits:
+        log("Dry run, nothing uploaded. Use --apply to upload.")
+    write_job_summary(report, args.area, bool(cs_id), cs_id)
     return 0
 
 

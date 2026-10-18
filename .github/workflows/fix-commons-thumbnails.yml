@@ -53,11 +53,10 @@ jobs:
           BOT_USER_AGENT: wikimedia-thumbnails-osm-bot/1.0 (https://github.com/${{ github.repository }})
           # Scheduled runs upload only once the repository variable BOT_ENABLED is "true".
           APPLY: ${{ (github.event_name == 'schedule' && vars.BOT_ENABLED == 'true') || inputs.apply == true }}
+        # Every decision is in the log; the run's summary page has a table of all edits.
         run: |
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
           python bot.py --area "$AREA" --max-edits "$MAX_EDITS" --report report.json \
-            $([ "$APPLY" = "true" ] && echo --apply) 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+            $([ "$APPLY" = "true" ] && echo --apply)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
