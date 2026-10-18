@@ -25,6 +25,6 @@ the prompts it was built from, in order.
 
 (Asked whether public or private: **public**.)
 
-## 7
+## 6
 
 > Please output what is done (or would be done) in the github action log, so it can be checked.
