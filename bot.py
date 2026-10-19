@@ -433,6 +433,22 @@ def osm_change_xml(edits: list[Edit], changeset_id: int) -> bytes:
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
+def check_token(s: requests.Session, token: str) -> bool:
+    """Fail early (before querying Overpass) if the token is unusable, and log the account."""
+    r = s.get(f"{OSM_API}/user/details.json", headers={"Authorization": f"Bearer {token}"}, timeout=30)
+    if r.status_code == 401:
+        log(
+            "OSM_ACCESS_TOKEN was rejected (401). It must be an OAuth 2 *access token*, "
+            "not the application's client secret; see get_token.py."
+        )
+        return False
+    if r.ok:
+        log(f"Editing as OSM user {r.json()['user']['display_name']}")
+    else:
+        log(f"Could not look up the OSM account ({r.status_code}), continuing")
+    return True
+
+
 def upload(s: requests.Session, edits: list[Edit], token: str) -> int:
     s.headers["Authorization"] = f"Bearer {token}"
     xml_headers = {"Content-Type": "text/xml; charset=utf-8"}
@@ -489,6 +505,8 @@ def main(argv=None) -> int:
         return 2
 
     s = session()
+    if args.apply and not check_token(s, token):
+        return 2
     report = plan_edits(s, find_candidates(s, args.area), args.max_edits)
     edits = report.edits
 

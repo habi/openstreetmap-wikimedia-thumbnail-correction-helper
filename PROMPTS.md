@@ -50,3 +50,9 @@ the prompts it was built from, in order.
 ## 11
 
 > Rename the repository to openstreetmap-wikimedia-thumbnail-correction-helper. Change the `created_by` USER_AGENT to "owtch@COMMITHASH (GITHUBLINK)" where the COMMIT has points to the has of the current version and GITHBLINK is the updated URL.
+
+## 12
+
+> I've added the "Client secret" to the OSM_ACCESS_TOKEN, but the action fails, as you can see in [link to the Action's job log]. I've made the account https://www.openstreetmap.org/user/habi-bot-wikimediathumbnails and copied the client secret. What about the client ID?
+
+(The original message contained a temporary signed link to the job log, replaced here.)

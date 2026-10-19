@@ -96,9 +96,19 @@ Every run can be checked afterwards:
 
 Setup:
 
-1. Create a dedicated OSM bot account (e.g. `yourname_bot`) and an OAuth 2 application
-   for it with the `write_api` scope. Get an access token and store it as the
-   repository secret **`OSM_ACCESS_TOKEN`**.
+1. Create a dedicated OSM bot account (e.g. `yourname_bot`). Logged in as that
+   account, register an
+   [OAuth 2 application](https://www.openstreetmap.org/oauth2/applications/new)
+   with redirect URI `urn:ietf:wg:oauth:2.0:oob` and the permissions *Read user
+   preferences* and *Modify the map*. Then exchange its client ID and secret for an
+   **access token** and store that as the repository secret **`OSM_ACCESS_TOKEN`**
+   (the client secret itself does not work):
+   ```sh
+   python get_token.py | gh secret set OSM_ACCESS_TOKEN
+   ```
+   The script asks for the client ID and secret, prints a link to open while logged
+   in as the bot account, and takes the code shown after *Authorize*. The token
+   does not expire. Upload runs log which account they edit as.
 2. Optional repository variables: `AREA` (ISO 3166-1 code or `world`), `MAX_EDITS`,
    `CHANGESET_DESCRIPTION_URL` (link to the bot's OSM wiki page, added to each
    changeset).
