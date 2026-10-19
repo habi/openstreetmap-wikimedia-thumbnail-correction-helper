@@ -4,7 +4,9 @@
 1. Logged in as the bot account, register an OAuth 2 application at
    https://www.openstreetmap.org/oauth2/applications/new with
      - Redirect URI: urn:ietf:wg:oauth:2.0:oob
-     - Permissions:  "Read user preferences" and "Modify the map"
+     - Permissions:  "Modify the map" (nothing else is needed; the link below must
+                     not ask for more than the application allows, or OSM answers
+                     "The requested scope is invalid")
    and note its client ID and client secret.
 2. Run this script. It prints a link; open it while logged in as the bot account,
    click "Authorize", and paste the code shown back into the script.
@@ -23,7 +25,7 @@ import requests
 
 OSM = "https://www.openstreetmap.org"
 REDIRECT_URI = "urn:ietf:wg:oauth:2.0:oob"
-SCOPES = "read_prefs write_api"
+SCOPES = "write_api"
 
 
 def ask(prompt: str, secret: bool = False) -> str:
@@ -61,13 +63,7 @@ def main() -> int:
         return 1
     token = r.json()["access_token"]
 
-    me = requests.get(
-        "https://api.openstreetmap.org/api/0.6/user/details.json",
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=30,
-    )
-    if me.ok:
-        print(f"Token belongs to OSM user: {me.json()['user']['display_name']}", file=sys.stderr)
+    print("Got an access token.", file=sys.stderr)
     print(token)
     return 0
 

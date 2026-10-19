@@ -56,3 +56,8 @@ the prompts it was built from, in order.
 > I've added the "Client secret" to the OSM_ACCESS_TOKEN, but the action fails, as you can see in [link to the Action's job log]. I've made the account https://www.openstreetmap.org/user/habi-bot-wikimediathumbnails and copied the client secret. What about the client ID?
 
 (The original message contained a temporary signed link to the job log, replaced here.)
+
+## 13
+
+> An error has occurred
+> The requested scope is invalid, unknown, or malformed.

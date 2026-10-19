@@ -444,8 +444,11 @@ def check_token(s: requests.Session, token: str) -> bool:
         return False
     if r.ok:
         log(f"Editing as OSM user {r.json()['user']['display_name']}")
+    elif r.status_code == 403:
+        # Valid token, just without the read_prefs scope to look up the account name.
+        log("OSM_ACCESS_TOKEN accepted")
     else:
-        log(f"Could not look up the OSM account ({r.status_code}), continuing")
+        log(f"Could not check OSM_ACCESS_TOKEN ({r.status_code}), continuing")
     return True
 
 
