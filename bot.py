@@ -508,7 +508,8 @@ def main(argv=None) -> int:
         return 2
 
     s = session()
-    if args.apply and not check_token(s, token):
+    # Also checked on dry runs (if set), so a new token can be tested without editing.
+    if token and not check_token(s, token):
         return 2
     report = plan_edits(s, find_candidates(s, args.area), args.max_edits)
     edits = report.edits
