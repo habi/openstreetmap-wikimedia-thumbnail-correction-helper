@@ -1,5 +1,7 @@
 # openstreetmap-wikimedia-thumbnail-correction-helper
 
+Discussion: [OSM Community Forum, thread 148079](https://c.osm.org/t/148079)
+
 An OpenStreetMap bot that fixes **broken** Wikimedia Commons thumbnail links in
 `image=*`:
 
@@ -24,6 +26,16 @@ image=https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Strassenschild_K
 
 Elements whose thumbnail still works are not touched, so no element version is
 increased without need.
+
+## Background
+
+This bot started in the [OSM Community Forum](https://c.osm.org/t/148079): habi
+noticed broken Wikimedia Commons thumbnail links in OSM and joked that a simple
+`s/800px/960px/g` over the OSM database would solve the problem. That would only
+have swapped one hotlinked thumbnail for another, and broken links in other widths
+or on images narrower than 960 px. This bot solves it properly: it only touches
+links that are really broken, and points them to the file's description page,
+where the author and license are given.
 
 ## Why
 

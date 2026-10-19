@@ -61,3 +61,7 @@ the prompts it was built from, in order.
 
 > An error has occurred
 > The requested scope is invalid, unknown, or malformed.
+
+## 14
+
+> Link to the initial discussion on https://c.osm.org/t/148079 at the beginning of the README. In the initial post in this OSM Community Forum thread me (habi) noticed broken Wikimedia Commons Thumbnail links and joked that a simple 's/800px/960px/g' in the OSM database would solve the problem. But with the help of the bot we're working on here the problem was properly solved. Add this above the "Why" section.
