@@ -78,8 +78,8 @@ the key is only added when it is missing or empty.
   Retries with backoff on 429/5xx. Runs weekly.
 - **Wikimedia**: whether a thumbnail works comes from its width, so no thumbnail is
   ever downloaded. The Action API is queried 50 files per request, one request at a
-  time with a 1 s pause, `maxlag=5`, and a descriptive User-Agent. It stops as soon
-  as `MAX_EDITS` broken links have been found.
+  time with a 1 s pause, `maxlag=5`, and a descriptive User-Agent, and only for
+  the files of the group edited in this run (see below).
 - **OSM API**: multi-fetch (`/nodes?nodes=…`) of only the elements that will be
   edited, one changeset per run, at most `MAX_EDITS` (default 200) edits.
 

@@ -24,7 +24,7 @@ Load on external services is kept low:
   * Overpass: one query per run, restricted to an area, returning tags only.
   * Wikimedia: whether a thumbnail works is decided from its width, without fetching
     it; existence, renames and original size come from the API in batches of 50
-    titles with `maxlag`, sequentially.
+    titles with `maxlag`, sequentially, only for this run's group.
   * OSM API: elements are fetched with multi-fetch calls, all edits go into one changeset,
     picked to lie as close together as possible so its bounding box stays small.
 
