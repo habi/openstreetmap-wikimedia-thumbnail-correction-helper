@@ -74,13 +74,27 @@ the key is only added when it is missing or empty.
 ## Keeping load low
 
 - **Overpass**: one query per run, limited to a country (`AREA`, default `CH`),
-  `out tags;` only (no geometry). Retries with backoff on 429/5xx. Runs weekly.
+  `out tags center;` only (tags plus one point per element, no full geometry).
+  Retries with backoff on 429/5xx. Runs weekly.
 - **Wikimedia**: whether a thumbnail works comes from its width, so no thumbnail is
   ever downloaded. The Action API is queried 50 files per request, one request at a
   time with a 1 s pause, `maxlag=5`, and a descriptive User-Agent. It stops as soon
   as `MAX_EDITS` broken links have been found.
 - **OSM API**: multi-fetch (`/nodes?nodes=…`) of only the elements that will be
   edited, one changeset per run, at most `MAX_EDITS` (default 200) edits.
+
+## Small changesets
+
+Each run's edits are picked to lie as close together as possible, so every
+changeset covers a small area and is easy to review (e.g. 200 edits within
+1.5 km × 1.3 km in Bern, instead of spread over all of Switzerland). The width in
+the URL already shows which thumbnails are broken, so the grouping happens before
+any request to Commons: the broken links are ordered along a
+[Hilbert curve](https://en.wikipedia.org/wiki/Hilbert_curve), and of all runs of
+`MAX_EDITS` consecutive links, the one with the smallest bounding box is taken
+(or the nearest neighbours of its center, if those are closer together).
+Thumbnails in standard widths are only checked inside that box. The next run
+takes the next group. The log and the run summary show the area, with a map link.
 
 ## Running locally
 

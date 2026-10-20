@@ -166,3 +166,34 @@ def test_osm_change_drops_redundant_image():
     assert change(elem, {"image": None}) == {
         "wikimedia_commons": "File:Strassenschild Kirchbergerstrasse.jpg"
     }
+
+
+def test_hilbert_index_keeps_neighbours_close():
+    from bot import hilbert_index
+
+    # visits every cell of a 16x16 grid exactly once, each step to an adjacent cell
+    cells = [(-90 + (y + 0.5) * 180 / 16, -180 + (x + 0.5) * 360 / 16) for x in range(16) for y in range(16)]
+    order = sorted(range(256), key=lambda i: hilbert_index(cells[i], order=4))
+    assert sorted(hilbert_index(c, order=4) for c in cells) == list(range(256))
+    for a, b in zip(order, order[1:]):
+        assert abs(a // 16 - b // 16) + abs(a % 16 - b % 16) == 1
+    bern, thun, geneva = (46.948, 7.447), (46.758, 7.628), (46.204, 6.143)
+    assert abs(hilbert_index(bern) - hilbert_index(thun)) < abs(hilbert_index(bern) - hilbert_index(geneva))
+
+
+def test_compact_group_picks_closest_points():
+    from bot import bbox, bbox_size, compact_group
+
+    bern = {("node", i): (46.94 + i * 0.001, 7.44 + i * 0.001) for i in range(10)}
+    far = {
+        ("node", 100): (46.20, 6.14),  # Geneva
+        ("node", 101): (47.37, 8.54),  # Zürich
+        ("node", 102): (46.00, 8.95),  # Lugano
+    }
+    points = {**far, **bern}
+    group = compact_group(points, 10)
+    assert sorted(group) == sorted(bern)
+    assert compact_group(points, 3) != list(far)
+    assert bbox_size(bbox(points[k] for k in compact_group(points, 3))) < 1e-4
+    assert sorted(compact_group(points, 50)) == sorted(points)
+    assert compact_group(points, 0) == []

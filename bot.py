@@ -25,7 +25,8 @@ Load on external services is kept low:
   * Wikimedia: whether a thumbnail works is decided from its width, without fetching
     it; existence, renames and original size come from the API in batches of 50
     titles with `maxlag`, sequentially.
-  * OSM API: elements are fetched with multi-fetch calls, all edits go into one changeset.
+  * OSM API: elements are fetched with multi-fetch calls, all edits go into one changeset,
+    picked to lie as close together as possible so its bounding box stays small.
 
 Runs as a dry run unless `--apply` is given.
 """
@@ -35,6 +36,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -187,7 +189,7 @@ def overpass_query(area: str) -> str:
     else:
         scope = ""
         selector = f'nwr["image"~"{OVERPASS_REGEX}"];'
-    return f"[out:json][timeout:600];\n{scope}{selector}\nout tags;"
+    return f"[out:json][timeout:600];\n{scope}{selector}\nout tags center;"
 
 
 def find_candidates(s: requests.Session, area: str) -> list[dict]:
@@ -197,6 +199,75 @@ def find_candidates(s: requests.Session, area: str) -> list[dict]:
     elements = r.json()["elements"]
     log(f"Overpass returned {len(elements)} elements")
     return elements
+
+
+# --- Grouping ----------------------------------------------------------------
+
+Pos = tuple[float, float]  # lat, lon
+
+
+def element_pos(e: dict) -> Pos | None:
+    """Position of an Overpass element (`out center` gives ways/relations a center)."""
+    if "lat" in e:
+        return e["lat"], e["lon"]
+    if "center" in e:
+        return e["center"]["lat"], e["center"]["lon"]
+    return None
+
+
+def bbox(points) -> tuple[float, float, float, float]:
+    lats, lons = zip(*points)
+    return min(lats), min(lons), max(lats), max(lons)
+
+
+def bbox_size(box) -> float:
+    """Squared diagonal of a bounding box, in (roughly) degrees of latitude."""
+    s, w, n, e = box
+    return (n - s) ** 2 + ((e - w) * math.cos(math.radians((n + s) / 2))) ** 2
+
+
+def bbox_km(box) -> str:
+    s, w, n, e = box
+    return f"{(e - w) * 111.32 * math.cos(math.radians((n + s) / 2)):.1f} km x {(n - s) * 110.57:.1f} km"
+
+
+def hilbert_index(pos: Pos, order: int = 16) -> int:
+    """Position along a Hilbert curve over the globe; nearby points get nearby indices."""
+    n = 1 << order
+    x = min(int((pos[1] + 180) / 360 * n), n - 1)
+    y = min(int((pos[0] + 90) / 180 * n), n - 1)
+    d, s = 0, n >> 1
+    while s:
+        rx, ry = int(x & s > 0), int(y & s > 0)
+        d += s * s * ((3 * rx) ^ ry)
+        if not ry:
+            if rx:
+                x, y = n - 1 - x, n - 1 - y
+            x, y = y, x
+        s >>= 1
+    return d
+
+
+def compact_group(points: dict, k: int) -> list:
+    """Pick `k` of the `points` ({key: (lat, lon)}) with a bounding box as small as possible.
+
+    Candidates are every run of k consecutive points along a Hilbert curve, and the k
+    nearest neighbours of the best run's center; the smallest bounding box wins."""
+    keys = sorted(points, key=lambda key: (hilbert_index(points[key]), key))
+    if len(keys) <= k:
+        return keys
+    if k <= 0:
+        return []
+    best = min(
+        (keys[i : i + k] for i in range(len(keys) - k + 1)),
+        key=lambda run: bbox_size(bbox(points[key] for key in run)),
+    )
+    s, w, n, e = bbox(points[key] for key in best)
+    lat, lon, scale = (n + s) / 2, (e + w) / 2, math.cos(math.radians((n + s) / 2))
+    nearest = sorted(
+        keys, key=lambda key: (points[key][0] - lat) ** 2 + ((points[key][1] - lon) * scale) ** 2
+    )[:k]
+    return min((best, nearest), key=lambda g: bbox_size(bbox(points[key] for key in g)))
 
 
 # --- Commons ----------------------------------------------------------------
@@ -315,43 +386,66 @@ class Report:
     not_found: list[str]  # file deleted on Commons
     changed: list[str]  # image=* changed since the Overpass snapshot
     unchecked: int  # not looked at because of --max-edits
+    bbox: tuple[float, float, float, float] | None = None  # of the edits
 
 
 def plan_edits(s: requests.Session, candidates: list[dict], max_edits: int) -> Report:
     report = Report([], [], [], [], 0)
-    thumbs = {}  # (type, id) -> (url, Thumb)
+    thumbs = {}  # (type, id) -> (url, Thumb, position)
     for c in candidates:
         url = c.get("tags", {}).get("image", "")
-        thumb = parse_thumb_url(url)
-        if thumb:
-            thumbs[(c["type"], c["id"])] = (url, thumb)
+        thumb, pos = parse_thumb_url(url), element_pos(c)
+        if thumb and pos:
+            thumbs[(c["type"], c["id"])] = (url, thumb, pos)
     log(f"{len(thumbs)} elements have a parseable Commons thumbnail URL")
 
-    # Ask Commons 50 files at a time, and stop as soon as we have enough broken links.
-    broken = {}  # (type, id) -> (url, current file name)
-    names = sorted({t.name for _, t in thumbs.values()})
-    checked = set()
+    # The width alone shows most broken links, so the edits can be grouped before asking
+    # Commons: take the max_edits of them lying closest together, for a small changeset.
+    pool = {k: pos for k, (_, t, pos) in thumbs.items() if t.width not in STANDARD_WIDTHS}
+    group = compact_group(pool or {k: pos for k, (_, _, pos) in thumbs.items()}, max_edits)
+    # Standard widths can be broken too (wider than the original): check those in the area.
+    to_check = list(group)
+    if group:
+        s_, w_, n_, e_ = bbox(thumbs[k][2] for k in group)
+        to_check += sorted(
+            k
+            for k, (_, t, (lat, lon)) in thumbs.items()
+            if k not in set(group) and t.width in STANDARD_WIDTHS and s_ <= lat <= n_ and w_ <= lon <= e_
+        )
+
+    # Ask Commons 50 files at a time whether they exist, their current name and size.
+    names = sorted({thumbs[k][1].name for k in to_check})
+    files = {}
     for i in range(0, len(names), 50):
-        if len(broken) >= max_edits:
-            break
         if i:
             time.sleep(1)
-        files = lookup_commons_files(s, names[i : i + 50])
-        for key, (url, thumb) in sorted(thumbs.items()):
-            if thumb.name not in names[i : i + 50] or len(broken) >= max_edits:
-                continue
-            checked.add(key)
-            ref = f"{key[0]}/{key[1]}"
-            if thumb.name not in files:
-                report.not_found.append(f"{osm_url(ref)}  File:{thumb.name} does not exist on Commons")
-                continue
-            current_name, info = files[thumb.name]
-            if is_broken(thumb, info):
-                broken[key] = (url, current_name, thumb.name)
-            else:
-                report.working.append(f"{osm_url(ref)}  {thumb.width}px still served: {url}")
-    report.unchecked = len(thumbs) - len(checked)
-    log(f"{len(broken)} of them are broken thumbnails (limit {max_edits})")
+        files.update(lookup_commons_files(s, names[i : i + 50]))
+
+    broken = {}  # (type, id) -> (url, current file name, file name in the URL)
+    checked = 0
+    for key in to_check:
+        if len(broken) >= max_edits:
+            break
+        checked += 1
+        url, thumb, _ = thumbs[key]
+        ref = f"{key[0]}/{key[1]}"
+        if thumb.name not in files:
+            report.not_found.append(f"{osm_url(ref)}  File:{thumb.name} does not exist on Commons")
+            continue
+        current_name, info = files[thumb.name]
+        if is_broken(thumb, info):
+            broken[key] = (url, current_name, thumb.name)
+        else:
+            report.working.append(f"{osm_url(ref)}  {thumb.width}px still served: {url}")
+    report.unchecked = len(thumbs) - checked
+    if broken:
+        report.bbox = bbox(thumbs[k][2] for k in broken)
+        log(
+            f"{len(broken)} broken thumbnails picked (limit {max_edits}), within "
+            f"{bbox_km(report.bbox)} (bbox {','.join(f'{c:.5f}' for c in report.bbox)})"
+        )
+    else:
+        log("No broken thumbnails found")
 
     # Re-read the live data: Overpass may lag behind the main database.
     elements = []
@@ -390,6 +484,12 @@ def write_job_summary(report: Report, area: str, applied: bool, changeset: int |
     out = [f"## Commons thumbnail fix: area `{area}`, {'uploaded' if applied else 'dry run'}\n"]
     if changeset:
         out.append(f"Changeset: https://www.openstreetmap.org/changeset/{changeset}\n")
+    if report.bbox:
+        s, w, n, e = report.bbox
+        out.append(
+            f"Edits lie within {bbox_km(report.bbox)} "
+            f"([map](https://www.openstreetmap.org/?minlon={w}&minlat={s}&maxlon={e}&maxlat={n}&box=yes)).\n"
+        )
     elif report.edits:
         out.append("**Dry run, nothing was uploaded.** These edits would be made:\n")
     out += [
