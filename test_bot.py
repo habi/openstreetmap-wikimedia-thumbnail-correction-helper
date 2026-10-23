@@ -197,3 +197,44 @@ def test_compact_group_picks_closest_points():
     assert bbox_size(bbox(points[k] for k in compact_group(points, 3))) < 1e-4
     assert sorted(compact_group(points, 50)) == sorted(points)
     assert compact_group(points, 0) == []
+
+
+ARAL = (
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/6/60/"
+    "Aral_Logo.svg/220px-Aral_Logo.svg.png"
+)
+
+
+def test_svg_thumbnails_are_recognised():
+    from bot import is_svg
+
+    assert is_svg(parse_thumb_url(ARAL))
+    assert not is_svg(parse_thumb_url(THUMB))
+
+
+def test_svg_flag_reports_nsi_match():
+    from bot import nsi_matches, svg_flag
+
+    nsi = {
+        ("brand:wikidata", "Q565734"): {
+            "shop=convenience": "Aral (brands/shop/convenience)",
+            "amenity=fuel": "Aral (brands/amenity/fuel)",
+        }
+    }
+    tags = {"amenity": "fuel", "brand": "Aral", "brand:wikidata": "Q565734", "image": ARAL}
+    assert nsi_matches(tags, nsi) == ["brand:wikidata=Q565734: Aral (brands/amenity/fuel)"]
+    # same QID under another key is not a match
+    assert nsi_matches({"operator:wikidata": "Q565734"}, nsi) == []
+    # fallback: brand=* without brand:wikidata, within the same NSI category
+    nsi[("brand", "amenity=fuel", "avia")] = {"amenity=fuel": "Avia (brands/amenity/fuel)"}
+    avia = {"amenity": "fuel", "brand": "Avia", "name": "AVIA XPress"}
+    assert nsi_matches(avia, nsi) == ["brand=Avia (no brand:wikidata): Avia (brands/amenity/fuel)"]
+    assert nsi_matches({**avia, "amenity": "parking"}, nsi) == []
+
+    line = svg_flag("node/271921343", parse_thumb_url(ARAL), tags, nsi)
+    assert line == (
+        "https://www.openstreetmap.org/node/271921343  File:Aral_Logo.svg  "
+        "[file name says logo; in NSI as brand:wikidata=Q565734: Aral (brands/amenity/fuel)]"
+    )
+    assert svg_flag("node/1", parse_thumb_url(ARAL), {}, nsi).endswith("not in NSI]")
+    assert svg_flag("node/1", parse_thumb_url(ARAL), {}, None).endswith("NSI not checked]")

@@ -43,7 +43,7 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import quote, unquote
 
 import requests
@@ -73,6 +73,8 @@ USER_AGENT = f"owtch@{commit_hash()} ({REPO_URL})"
 OVERPASS_URL = os.environ.get("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
 OSM_API = os.environ.get("OSM_API", "https://api.openstreetmap.org/api/0.6")
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
+# Name Suggestion Index (https://github.com/osmlab/name-suggestion-index), current major version
+NSI_URL = "https://cdn.jsdelivr.net/npm/name-suggestion-index@8/dist/json/nsi.min.json"
 
 CHANGESET_COMMENT = (
     "Fix broken Wikimedia Commons thumbnail URLs in image=*: link the file description "
@@ -199,6 +201,77 @@ def find_candidates(s: requests.Session, area: str) -> list[dict]:
     elements = r.json()["elements"]
     log(f"Overpass returned {len(elements)} elements")
     return elements
+
+
+# --- SVG / logo check --------------------------------------------------------
+#
+# Thumbnails of SVG files are often logos (e.g. image=…/Aral_Logo.svg/220px-Aral_Logo.svg.png
+# on an Aral fuel station). They are not edited for now, only flagged in the log, with
+# whether the element's brand/operator/… is in the Name Suggestion Index.
+
+
+def is_svg(thumb: Thumb) -> bool:
+    return thumb.name.lower().endswith(".svg")
+
+
+def load_nsi(s: requests.Session) -> dict[tuple[str, ...], dict[str, str]] | None:
+    """Index of the NSI, {key: {category tag: "Name (NSI category)"}}, with keys
+    (tag, wikidata id) for all *:wikidata tags, and
+    ("brand", key=value of the category, lower-case brand) as a fallback for elements
+    that have brand=* but no brand:wikidata=*."""
+    try:
+        r = request_with_retry(s, "GET", NSI_URL, timeout=120)
+        data = r.json()
+    except (requests.RequestException, ValueError) as e:
+        log(f"Could not load the Name Suggestion Index: {e}")
+        return None
+    log(f"Loaded Name Suggestion Index {data.get('_meta', {}).get('version', '?')}")
+    index = {}
+    for path, category in data["nsi"].items():
+        main_tag = "=".join(path.split("/")[1:3])  # brands/amenity/fuel -> amenity=fuel
+        for item in category.get("items", []):
+            label = f"{item.get('displayName', item.get('id'))} ({path})"
+            tags = item.get("tags", {})
+            for k, v in tags.items():
+                if k.endswith("wikidata"):
+                    index.setdefault((k, v), {}).setdefault(main_tag, label)
+            if path.startswith("brands/") and tags.get("brand"):
+                index.setdefault(("brand", main_tag, tags["brand"].lower()), {main_tag: label})
+    return index
+
+
+def nsi_matches(tags: dict[str, str], nsi: dict[tuple[str, ...], dict[str, str]]) -> list[str]:
+    """NSI entries matching any of the element's *:wikidata tags (same key and value),
+    else its brand=* within the same NSI category (e.g. amenity=fuel). Entries in the
+    category of the element (e.g. brands/amenity/fuel for amenity=fuel) are preferred."""
+    element_tags = {f"{k}={v}" for k, v in tags.items()}
+
+    def best(labels: dict[str, str]) -> str:
+        return next((label for tag, label in labels.items() if tag in element_tags), next(iter(labels.values())))
+
+    found = [
+        f"{k}={v}: {best(nsi[(k, v)])}"
+        for k, v in sorted(tags.items())
+        if k.endswith("wikidata") and (k, v) in nsi
+    ]
+    if not found and tags.get("brand"):
+        for tag in sorted(element_tags):
+            key = ("brand", tag, tags["brand"].lower())
+            if key in nsi:
+                found.append(f"brand={tags['brand']} (no brand:wikidata): {best(nsi[key])}")
+    return found
+
+
+def svg_flag(ref: str, thumb: Thumb, tags: dict[str, str], nsi: dict | None) -> str:
+    """One log line for an element with an SVG thumbnail, which is not edited."""
+    hints = []
+    if "logo" in thumb.name.lower():
+        hints.append("file name says logo")
+    if nsi is None:
+        hints.append("NSI not checked")
+    else:
+        hints += [f"in NSI as {m}" for m in nsi_matches(tags, nsi)] or ["not in NSI"]
+    return f"{osm_url(ref)}  File:{thumb.name}  [{'; '.join(hints)}]"
 
 
 # --- Grouping ----------------------------------------------------------------
@@ -386,6 +459,7 @@ class Report:
     not_found: list[str]  # file deleted on Commons
     changed: list[str]  # image=* changed since the Overpass snapshot
     unchecked: int  # not looked at because of --max-edits
+    svg: list[str] = field(default_factory=list)  # SVG thumbnails (often logos), not edited
     bbox: tuple[float, float, float, float] | None = None  # of the edits
 
 
@@ -398,6 +472,14 @@ def plan_edits(s: requests.Session, candidates: list[dict], max_edits: int) -> R
         if thumb and pos:
             thumbs[(c["type"], c["id"])] = (url, thumb, pos)
     log(f"{len(thumbs)} elements have a parseable Commons thumbnail URL")
+
+    # Leave SVG thumbnails (often logos) alone for now; just flag them.
+    svg = sorted(k for k, (_, t, _) in thumbs.items() if is_svg(t))
+    if svg:
+        nsi = load_nsi(s)
+        tags = {(c["type"], c["id"]): c.get("tags", {}) for c in candidates}
+        for k in svg:
+            report.svg.append(svg_flag(f"{k[0]}/{k[1]}", thumbs.pop(k)[1], tags[k], nsi))
 
     # The width alone shows most broken links, so the edits can be grouped before asking
     # Commons: take the max_edits of them lying closest together, for a small changeset.
@@ -499,6 +581,7 @@ def write_job_summary(report: Report, area: str, applied: bool, changeset: int |
         f"| left alone, thumbnail still works | {len(report.working)} |",
         f"| skipped, file not on Commons | {len(report.not_found)} |",
         f"| skipped, changed in OSM meanwhile | {len(report.changed)} |",
+        f"| not edited, SVG thumbnail (possibly a logo) | {len(report.svg)} |",
         f"| not checked this run (limit reached) | {report.unchecked} |",
         "",
     ]
@@ -617,6 +700,9 @@ def main(argv=None) -> int:
     log_group(f"Left alone, thumbnail still works ({len(report.working)})", report.working)
     log_group(f"Skipped, file not on Commons ({len(report.not_found)})", report.not_found)
     log_group(f"Skipped, changed in OSM meanwhile ({len(report.changed)})", report.changed)
+    log_group(f"Not edited, SVG thumbnail, possibly a logo ({len(report.svg)})", report.svg)
+    if IN_ACTIONS and report.svg:
+        log(f"::warning::{len(report.svg)} SVG thumbnails (possibly logos) were not edited, see the log")
     if args.report:
         with open(args.report, "w") as f:
             json.dump([{"element": e.ref, "old_image": e.old, "changes": e.changes} for e in edits], f, indent=2, ensure_ascii=False)
@@ -632,7 +718,7 @@ def main(argv=None) -> int:
         f"\nSummary for area {args.area}: "
         f"{len(edits)} {'edited' if cs_id else 'to edit'}, "
         f"{len(report.working)} still working, {len(report.not_found)} file missing, "
-        f"{len(report.changed)} changed meanwhile, {report.unchecked} not checked (limit reached)."
+        f"{len(report.changed)} changed meanwhile, {len(report.svg)} SVG not edited, {report.unchecked} not checked (limit reached)."
     )
     if cs_id:
         log(f"Changeset: https://www.openstreetmap.org/changeset/{cs_id}")

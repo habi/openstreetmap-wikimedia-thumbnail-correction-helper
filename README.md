@@ -71,6 +71,22 @@ other wikis (`/wikipedia/de/…`), multiple values (`;`), other keys (`image:*`,
 and anything it can't parse. An existing `wikimedia_commons=*` is never changed;
 the key is only added when it is missing or empty.
 
+### SVG thumbnails (logos)
+
+Thumbnails of SVG files are often logos, e.g.
+`image=…/Aral_Logo.svg/220px-Aral_Logo.svg.png` on an Aral fuel station
+([#1](https://github.com/habi/openstreetmap-wikimedia-thumbnail-correction-helper/issues/1)).
+For now these are **not edited**, only flagged in the log (and as a warning on the
+run). Each flagged element shows whether the file name says "logo" and whether the
+element is in the [Name Suggestion Index](https://github.com/osmlab/name-suggestion-index)
+(NSI): by its `brand:wikidata`, `operator:wikidata`, … or, without those, by `brand=*`
+within the matching NSI category (e.g. `amenity=fuel`). The NSI data is loaded once
+per run, from the jsDelivr CDN, and only if there are SVG thumbnails.
+
+Commons itself has no "is a logo" flag. Hints are the file type (SVG), categories
+such as *SVG logos of Aral AG*, the restriction *trademarked*, or the structured-data
+statement *depicts: logo*.
+
 ## Keeping load low
 
 - **Overpass**: one query per run, limited to a country (`AREA`, default `CH`),
@@ -114,8 +130,9 @@ Every run can be checked afterwards:
 
 - **Log** of the *Run bot* step: every element looked at, grouped (collapsible) into
   *would edit* / *edited in changeset N* (with old → new value), *left alone,
-  thumbnail still works*, *skipped, file not on Commons* and *skipped, changed in
-  OSM meanwhile*, each with a link to the element, followed by a one-line summary.
+  thumbnail still works*, *skipped, file not on Commons*, *skipped, changed in
+  OSM meanwhile* and *not edited, SVG thumbnail, possibly a logo* (with NSI match),
+  each with a link to the element, followed by a one-line summary.
 - **Summary page** of the run: counts, the changeset link, and a table of all
   edits with links to the element, the broken thumbnail and the new Commons page.
 - **Artifact** `report.json`: the edits as machine-readable JSON.

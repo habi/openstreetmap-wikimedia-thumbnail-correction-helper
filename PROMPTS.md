@@ -69,3 +69,7 @@ the prompts it was built from, in order.
 ## 15
 
 > Can you make the changeset geographically as small as possible? E.g. when 200 elements are to be edited/uploaded, group them as closely as possible together.
+
+## 16
+
+> A test run over Germany found an edge case (see issue 1), in which the image is a logo, originally a SVG, but the image-value links to the PNG thumbnail. Can the Wikimedia Commons API provide if that file is a logo or not? A test should include if these OSM elements (with a SVG in the image-value) are in https://github.com/osmlab/name-suggestion-index, and flag these somehout in the GitHub Action log and *not* edit these elements for the moment.
