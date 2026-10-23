@@ -73,3 +73,7 @@ the prompts it was built from, in order.
 ## 16
 
 > A test run over Germany found an edge case (see issue 1), in which the image is a logo, originally a SVG, but the image-value links to the PNG thumbnail. Can the Wikimedia Commons API provide if that file is a logo or not? A test should include if these OSM elements (with a SVG in the image-value) are in https://github.com/osmlab/name-suggestion-index, and flag these somehout in the GitHub Action log and *not* edit these elements for the moment.
+
+## 17
+
+> I want to take care of another edge case, specified in Issue 2. The element listed there would have it's image-value removed, but there's also an `image:0` value tagged on the element. This would be a good candidate for `image` tag removal (because of wikimedia_commons), and copying `image:0` to `image` afterwards. Can you also just note this edge case in the Action output (before the table that show the edits done, after the overview table) and simply skip them for the moment? But tell in the output what you would change (remove image since wikimedia_commons is the identical image, move image:something/image_something to image)?

@@ -71,6 +71,22 @@ other wikis (`/wikipedia/de/…`), multiple values (`;`), other keys (`image:*`,
 and anything it can't parse. An existing `wikimedia_commons=*` is never changed;
 the key is only added when it is missing or empty.
 
+### Further `image:*` tags
+
+If `image=*` would be removed (moved to `wikimedia_commons=*`, or the same file is
+already there) but the element also has further image tags such as `image:0=*` or
+`image_1=*`
+([#2](https://github.com/habi/openstreetmap-wikimedia-thumbnail-correction-helper/issues/2)),
+it is **not edited** for now. The log and the run summary (between the overview
+and the table of edits) show what would be done: remove `image=*`, and move the
+first further image tag to `image=*`, e.g.
+
+```diff
+- image=https://upload.wikimedia.org/…/531px-2017_Poci%C4%85g_do_nieba_we_Wroc%C5%82awiu.jpg  (same file as wikimedia_commons=File:2017 Pociąg do nieba we Wrocławiu.jpg)
+- image:0=https://photos.app.goo.gl/JH1wPKFonFEifxiA7
++ image=https://photos.app.goo.gl/JH1wPKFonFEifxiA7  (moved from image:0)
+```
+
 ### SVG thumbnails (logos)
 
 Thumbnails of SVG files are often logos, e.g.
@@ -131,7 +147,8 @@ Every run can be checked afterwards:
 - **Log** of the *Run bot* step: every element looked at, grouped (collapsible) into
   *would edit* / *edited in changeset N* (with old → new value), *left alone,
   thumbnail still works*, *skipped, file not on Commons*, *skipped, changed in
-  OSM meanwhile* and *not edited, SVG thumbnail, possibly a logo* (with NSI match),
+  OSM meanwhile*, *not edited, SVG thumbnail, possibly a logo* (with NSI match) and
+  *not edited, further image:\* tags* (with what would be changed),
   each with a link to the element, followed by a one-line summary.
 - **Summary page** of the run: counts, the changeset link, and a table of all
   edits with links to the element, the broken thumbnail and the new Commons page.

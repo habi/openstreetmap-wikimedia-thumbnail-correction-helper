@@ -433,6 +433,33 @@ def tag_changes(tags: dict[str, str], filename: str, *aliases: str) -> dict[str,
     return {"image": commons_page_url(filename)}
 
 
+def other_image_keys(tags: dict[str, str]) -> list[str]:
+    """Further image tags on the element, e.g. image:0=*, image:1=*, image_1=*."""
+    return sorted(k for k, v in tags.items() if k.startswith(("image:", "image_")) and v.strip())
+
+
+def other_images_plan(ref: str, tags: dict[str, str], changes: dict[str, str | None]) -> str | None:
+    """If image=* would be removed although the element has further image:*/image_*
+    tags, describe what would be done (not done for now, see #2), else None."""
+    others = other_image_keys(tags)
+    if changes.get("image", "") is not None or not others:
+        return None
+    first = others[0]
+    lines = [osm_url(ref)]
+    if "wikimedia_commons" in changes:
+        lines += [
+            f"    - image={tags['image']}",
+            f"    + wikimedia_commons={changes['wikimedia_commons']}  (moved from image)",
+        ]
+    else:
+        lines.append(
+            f"    - image={tags['image']}  (same file as wikimedia_commons={tags['wikimedia_commons']})"
+        )
+    lines += [f"    - {first}={tags[first]}", f"    + image={tags[first]}  (moved from {first})"]
+    lines += [f"      {k}={tags[k]}  (kept)" for k in others[1:]]
+    return "\n".join(lines)
+
+
 def fetch_osm_elements(s: requests.Session, kind: str, ids: list[int]) -> list[ET.Element]:
     out = []
     for i in range(0, len(ids), 100):
@@ -460,6 +487,7 @@ class Report:
     changed: list[str]  # image=* changed since the Overpass snapshot
     unchecked: int  # not looked at because of --max-edits
     svg: list[str] = field(default_factory=list)  # SVG thumbnails (often logos), not edited
+    other_images: list[str] = field(default_factory=list)  # would need image:0 -> image, see #2
     bbox: tuple[float, float, float, float] | None = None  # of the edits
 
 
@@ -521,10 +549,10 @@ def plan_edits(s: requests.Session, candidates: list[dict], max_edits: int) -> R
             report.working.append(f"{osm_url(ref)}  {thumb.width}px still served: {url}")
     report.unchecked = len(thumbs) - checked
     if broken:
-        report.bbox = bbox(thumbs[k][2] for k in broken)
+        box = bbox(thumbs[k][2] for k in broken)
         log(
             f"{len(broken)} broken thumbnails picked (limit {max_edits}), within "
-            f"{bbox_km(report.bbox)} (bbox {','.join(f'{c:.5f}' for c in report.bbox)})"
+            f"{bbox_km(box)} (bbox {','.join(f'{c:.5f}' for c in box)})"
         )
     else:
         log("No broken thumbnails found")
@@ -545,9 +573,17 @@ def plan_edits(s: requests.Session, candidates: list[dict], max_edits: int) -> R
         if tags.get("image") != old:
             report.changed.append(f"{osm_url(elem.tag + '/' + elem.get('id'))}  image=* changed since the Overpass snapshot")
             continue
-        report.edits.append(Edit(elem, old, tag_changes(tags, filename, old_name)))
+        changes = tag_changes(tags, filename, old_name)
+        ref = f"{elem.tag}/{elem.get('id')}"
+        plan = other_images_plan(ref, tags, changes)
+        if plan:
+            report.other_images.append(plan)
+            continue
+        report.edits.append(Edit(elem, old, changes))
     for key in sorted(set(broken) - found):
         report.changed.append(f"{osm_url(f'{key[0]}/{key[1]}')}  deleted since the Overpass snapshot")
+    if report.edits:
+        report.bbox = bbox(thumbs[(e.elem.tag, int(e.elem.get("id")))][2] for e in report.edits)
     return report
 
 
@@ -572,8 +608,8 @@ def write_job_summary(report: Report, area: str, applied: bool, changeset: int |
             f"Edits lie within {bbox_km(report.bbox)} "
             f"([map](https://www.openstreetmap.org/?minlon={w}&minlat={s}&maxlon={e}&maxlat={n}&box=yes)).\n"
         )
-    elif report.edits:
-        out.append("**Dry run, nothing was uploaded.** These edits would be made:\n")
+    if report.edits and not applied:
+        out.append("**Dry run, nothing was uploaded.**\n")
     out += [
         "| | elements |",
         "|---|---:|",
@@ -582,10 +618,26 @@ def write_job_summary(report: Report, area: str, applied: bool, changeset: int |
         f"| skipped, file not on Commons | {len(report.not_found)} |",
         f"| skipped, changed in OSM meanwhile | {len(report.changed)} |",
         f"| not edited, SVG thumbnail (possibly a logo) | {len(report.svg)} |",
+        f"| not edited, has further `image:*` tags | {len(report.other_images)} |",
         f"| not checked this run (limit reached) | {report.unchecked} |",
         "",
     ]
+    if report.other_images:
+        out += [
+            "### Not edited: further `image:*` tags",
+            "",
+            "`image` would be removed, but the element has more image tags. Skipped for now",
+            "([#2](https://github.com/habi/openstreetmap-wikimedia-thumbnail-correction-helper/issues/2));",
+            "this is what would be changed:",
+            "",
+            "```diff",
+            # +/- at the start of the line, so GitHub colours them
+            *(line[4:] if line.startswith("    ") else f"# {line}" for plan in report.other_images for line in plan.splitlines()),
+            "```",
+            "",
+        ]
     if report.edits:
+        out += ["### " + ("Edits" if applied else "Edits that would be made"), ""]
         out += ["| element | width | old `image` (broken) | new tags |", "|---|---:|---|---|"]
         for e in report.edits:
             t = parse_thumb_url(e.old)
@@ -701,6 +753,10 @@ def main(argv=None) -> int:
     log_group(f"Skipped, file not on Commons ({len(report.not_found)})", report.not_found)
     log_group(f"Skipped, changed in OSM meanwhile ({len(report.changed)})", report.changed)
     log_group(f"Not edited, SVG thumbnail, possibly a logo ({len(report.svg)})", report.svg)
+    log_group(
+        f"Not edited, image=* would be removed but further image:* tags exist ({len(report.other_images)})",
+        report.other_images,
+    )
     if IN_ACTIONS and report.svg:
         log(f"::warning::{len(report.svg)} SVG thumbnails (possibly logos) were not edited, see the log")
     if args.report:
@@ -718,7 +774,7 @@ def main(argv=None) -> int:
         f"\nSummary for area {args.area}: "
         f"{len(edits)} {'edited' if cs_id else 'to edit'}, "
         f"{len(report.working)} still working, {len(report.not_found)} file missing, "
-        f"{len(report.changed)} changed meanwhile, {len(report.svg)} SVG not edited, {report.unchecked} not checked (limit reached)."
+        f"{len(report.changed)} changed meanwhile, {len(report.svg)} SVG not edited, {len(report.other_images)} with further image:* not edited, {report.unchecked} not checked (limit reached)."
     )
     if cs_id:
         log(f"Changeset: https://www.openstreetmap.org/changeset/{cs_id}")

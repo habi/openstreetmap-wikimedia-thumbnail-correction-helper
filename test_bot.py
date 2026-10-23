@@ -238,3 +238,34 @@ def test_svg_flag_reports_nsi_match():
     )
     assert svg_flag("node/1", parse_thumb_url(ARAL), {}, nsi).endswith("not in NSI]")
     assert svg_flag("node/1", parse_thumb_url(ARAL), {}, None).endswith("NSI not checked]")
+
+
+def test_other_images_plan():
+    from bot import other_images_plan
+
+    commons = "File:2017 Pociąg do nieba we Wrocławiu.jpg"
+    tags = {
+        "image": THUMB,
+        "image:0": "https://photos.app.goo.gl/JH1wPKFonFEifxiA7",
+        "wikimedia_commons": commons,
+    }
+    plan = other_images_plan("node/1779460255", tags, {"image": None})
+    assert plan.splitlines() == [
+        "https://www.openstreetmap.org/node/1779460255",
+        f"    - image={THUMB}  (same file as wikimedia_commons={commons})",
+        "    - image:0=https://photos.app.goo.gl/JH1wPKFonFEifxiA7",
+        "    + image=https://photos.app.goo.gl/JH1wPKFonFEifxiA7  (moved from image:0)",
+    ]
+    # moved to wikimedia_commons, two further image tags
+    tags = {"image": THUMB, "image:1": "b", "image_0": "a"}
+    changes = {"image": None, "wikimedia_commons": "File:X.jpg"}
+    assert other_images_plan("way/1", tags, changes).splitlines()[1:] == [
+        f"    - image={THUMB}",
+        "    + wikimedia_commons=File:X.jpg  (moved from image)",
+        "    - image:1=b",
+        "    + image=b  (moved from image:1)",
+        "      image_0=a  (kept)",
+    ]
+    # image=* is kept (fixed), or no further image tags: nothing to flag
+    assert other_images_plan("way/1", {**tags, "wikimedia_commons": "Category:X"}, {"image": "x"}) is None
+    assert other_images_plan("way/1", {"image": THUMB}, changes) is None
