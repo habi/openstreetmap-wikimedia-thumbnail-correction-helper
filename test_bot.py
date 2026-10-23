@@ -231,13 +231,22 @@ def test_svg_flag_reports_nsi_match():
     assert nsi_matches(avia, nsi) == ["brand=Avia (no brand:wikidata): Avia (brands/amenity/fuel)"]
     assert nsi_matches({**avia, "amenity": "parking"}, nsi) == []
 
-    line = svg_flag("node/271921343", parse_thumb_url(ARAL), tags, nsi)
-    assert line == (
+    flag = svg_flag("node/271921343", parse_thumb_url(ARAL), tags, nsi)
+    assert flag.splitlines() == [
         "https://www.openstreetmap.org/node/271921343  File:Aral_Logo.svg  "
-        "[file name says logo; in NSI as brand:wikidata=Q565734: Aral (brands/amenity/fuel)]"
-    )
-    assert svg_flag("node/1", parse_thumb_url(ARAL), {}, nsi).endswith("not in NSI]")
-    assert svg_flag("node/1", parse_thumb_url(ARAL), {}, None).endswith("NSI not checked]")
+        "[file name says logo; in NSI as brand:wikidata=Q565734: Aral (brands/amenity/fuel)]",
+        f"    - image={ARAL}",
+        "    + wikimedia_commons=File:Aral Logo.svg  (moved from image)",
+    ]
+    first = lambda tags, nsi: svg_flag("node/1", parse_thumb_url(ARAL), tags, nsi).splitlines()[0]
+    assert first({"image": ARAL}, nsi).endswith("not in NSI]")
+    assert first({"image": ARAL}, None).endswith("NSI not checked]")
+    # wikimedia_commons is the same file: image would just be removed
+    same = svg_flag("node/1", parse_thumb_url(ARAL), {"image": ARAL, "wikimedia_commons": "File:Aral Logo.svg"}, None)
+    assert same.splitlines()[1:] == [f"    - image={ARAL}  (same file as wikimedia_commons=File:Aral Logo.svg)"]
+    # standard width: still works, nothing would change
+    works = ARAL.replace("220px", "250px")
+    assert "still works: no change" in svg_flag("node/1", parse_thumb_url(works), {"image": works}, None)
 
 
 def test_other_images_plan():

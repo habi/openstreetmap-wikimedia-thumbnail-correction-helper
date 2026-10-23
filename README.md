@@ -92,8 +92,17 @@ first further image tag to `image=*`, e.g.
 Thumbnails of SVG files are often logos, e.g.
 `image=…/Aral_Logo.svg/220px-Aral_Logo.svg.png` on an Aral fuel station
 ([#1](https://github.com/habi/openstreetmap-wikimedia-thumbnail-correction-helper/issues/1)).
-For now these are **not edited**, only flagged in the log (and as a warning on the
-run). Each flagged element shows whether the file name says "logo" and whether the
+For now these are **not edited**, only flagged in the log, as a warning on the run,
+and in the run summary (between the overview and the table of edits), with the
+diff that would be applied, e.g.
+
+```diff
+# https://www.openstreetmap.org/node/271921343  File:Aral_Logo.svg  [file name says logo; in NSI as brand:wikidata=Q565734: Aral (brands/shop/convenience)]
+- image=https://upload.wikimedia.org/wikipedia/commons/thumb/6/60/Aral_Logo.svg/220px-Aral_Logo.svg.png
++ wikimedia_commons=File:Aral Logo.svg  (moved from image)
+```
+
+Each flagged element shows whether the file name says "logo" and whether the
 element is in the [Name Suggestion Index](https://github.com/osmlab/name-suggestion-index)
 (NSI): by its `brand:wikidata`, `operator:wikidata`, … or, without those, by `brand=*`
 within the matching NSI category (e.g. `amenity=fuel`). The NSI data is loaded once

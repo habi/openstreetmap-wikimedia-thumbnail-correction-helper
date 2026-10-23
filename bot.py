@@ -263,7 +263,8 @@ def nsi_matches(tags: dict[str, str], nsi: dict[tuple[str, ...], dict[str, str]]
 
 
 def svg_flag(ref: str, thumb: Thumb, tags: dict[str, str], nsi: dict | None) -> str:
-    """One log line for an element with an SVG thumbnail, which is not edited."""
+    """Report for an element with an SVG thumbnail, which is not edited: logo and NSI
+    hints, and what would be changed (from the URL alone, not checked on Commons)."""
     hints = []
     if "logo" in thumb.name.lower():
         hints.append("file name says logo")
@@ -271,7 +272,12 @@ def svg_flag(ref: str, thumb: Thumb, tags: dict[str, str], nsi: dict | None) -> 
         hints.append("NSI not checked")
     else:
         hints += [f"in NSI as {m}" for m in nsi_matches(tags, nsi)] or ["not in NSI"]
-    return f"{osm_url(ref)}  File:{thumb.name}  [{'; '.join(hints)}]"
+    lines = [f"{osm_url(ref)}  File:{thumb.name}  [{'; '.join(hints)}]"]
+    if thumb.width in STANDARD_WIDTHS:  # SVGs scale to any size, so this one works
+        lines.append(f"      image={tags['image']}  (standard width, still works: no change)")
+    else:
+        lines += diff_lines(tags, tag_changes(tags, thumb.name))
+    return "\n".join(lines)
 
 
 # --- Grouping ----------------------------------------------------------------
@@ -438,26 +444,32 @@ def other_image_keys(tags: dict[str, str]) -> list[str]:
     return sorted(k for k, v in tags.items() if k.startswith(("image:", "image_")) and v.strip())
 
 
-def other_images_plan(ref: str, tags: dict[str, str], changes: dict[str, str | None]) -> str | None:
-    """If image=* would be removed although the element has further image:*/image_*
-    tags, describe what would be done (not done for now, see #2), else None."""
-    others = other_image_keys(tags)
-    if changes.get("image", "") is not None or not others:
-        return None
-    first = others[0]
-    lines = [osm_url(ref)]
+def diff_lines(tags: dict[str, str], changes: dict[str, str | None]) -> list[str]:
+    """What `changes` would do to an element, as indented -/+ lines; if image=* is
+    removed, the first further image:*/image_* tag would move to image=* (see #2)."""
+    if changes.get("image") is not None:
+        return [f"    - image={tags['image']}", f"    + image={changes['image']}"]
     if "wikimedia_commons" in changes:
-        lines += [
+        lines = [
             f"    - image={tags['image']}",
             f"    + wikimedia_commons={changes['wikimedia_commons']}  (moved from image)",
         ]
     else:
-        lines.append(
-            f"    - image={tags['image']}  (same file as wikimedia_commons={tags['wikimedia_commons']})"
-        )
-    lines += [f"    - {first}={tags[first]}", f"    + image={tags[first]}  (moved from {first})"]
-    lines += [f"      {k}={tags[k]}  (kept)" for k in others[1:]]
-    return "\n".join(lines)
+        lines = [f"    - image={tags['image']}  (same file as wikimedia_commons={tags['wikimedia_commons']})"]
+    others = other_image_keys(tags)
+    if others:
+        first = others[0]
+        lines += [f"    - {first}={tags[first]}", f"    + image={tags[first]}  (moved from {first})"]
+        lines += [f"      {k}={tags[k]}  (kept)" for k in others[1:]]
+    return lines
+
+
+def other_images_plan(ref: str, tags: dict[str, str], changes: dict[str, str | None]) -> str | None:
+    """If image=* would be removed although the element has further image:*/image_*
+    tags, describe what would be done (not done for now, see #2), else None."""
+    if changes.get("image", "") is not None or not other_image_keys(tags):
+        return None
+    return "\n".join([osm_url(ref), *diff_lines(tags, changes)])
 
 
 def fetch_osm_elements(s: requests.Session, kind: str, ids: list[int]) -> list[ET.Element]:
@@ -622,20 +634,27 @@ def write_job_summary(report: Report, area: str, applied: bool, changeset: int |
         f"| not checked this run (limit reached) | {report.unchecked} |",
         "",
     ]
-    if report.other_images:
-        out += [
-            "### Not edited: further `image:*` tags",
-            "",
-            "`image` would be removed, but the element has more image tags. Skipped for now",
-            "([#2](https://github.com/habi/openstreetmap-wikimedia-thumbnail-correction-helper/issues/2));",
-            "this is what would be changed:",
-            "",
-            "```diff",
-            # +/- at the start of the line, so GitHub colours them
-            *(line[4:] if line.startswith("    ") else f"# {line}" for plan in report.other_images for line in plan.splitlines()),
-            "```",
-            "",
-        ]
+    issues = "https://github.com/habi/openstreetmap-wikimedia-thumbnail-correction-helper/issues"
+
+    def diff_section(title: str, why: str, plans: list[str]):
+        if not plans:
+            return
+        out.extend([f"### {title} ({len(plans)})", "", why, "This is what would be changed:", "", "```diff"])
+        # +/- at the start of the line, so GitHub colours them
+        out.extend(line[4:] if line.startswith("    ") else f"# {line}" for plan in plans for line in plan.splitlines())
+        out.extend(["```", ""])
+
+    diff_section(
+        "Not edited: SVG thumbnails, possibly logos",
+        f"Thumbnails of SVG files are often logos; skipped for now ([#1]({issues}/1)). "
+        "In brackets: hints, and whether the element is in the Name Suggestion Index.",
+        report.svg,
+    )
+    diff_section(
+        "Not edited: further `image:*` tags",
+        f"`image` would be removed, but the element has more image tags; skipped for now ([#2]({issues}/2)).",
+        report.other_images,
+    )
     if report.edits:
         out += ["### " + ("Edits" if applied else "Edits that would be made"), ""]
         out += ["| element | width | old `image` (broken) | new tags |", "|---|---:|---|---|"]

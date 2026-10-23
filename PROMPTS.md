@@ -77,3 +77,7 @@ the prompts it was built from, in order.
 ## 17
 
 > I want to take care of another edge case, specified in Issue 2. The element listed there would have it's image-value removed, but there's also an `image:0` value tagged on the element. This would be a good candidate for `image` tag removal (because of wikimedia_commons), and copying `image:0` to `image` afterwards. Can you also just note this edge case in the Action output (before the table that show the edits done, after the overview table) and simply skip them for the moment? But tell in the output what you would change (remove image since wikimedia_commons is the identical image, move image:something/image_something to image)?
+
+## 18
+
+> Can you include the same style of reporting for the commit before, concerning the SVG logos?
