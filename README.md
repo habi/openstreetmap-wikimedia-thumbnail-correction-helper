@@ -116,13 +116,13 @@ statement *depicts: logo*.
 
 - **Overpass**: one query per run, limited to a country (`AREA`, default `CH`),
   `out tags center;` only (tags plus one point per element, no full geometry).
-  Retries with backoff on 429/5xx. Runs every 3 hours.
+  Retries with backoff on 429/5xx. Runs every 4 hours.
 - **Wikimedia**: whether a thumbnail works comes from its width, so no thumbnail is
   ever downloaded. The Action API is queried 50 files per request, one request at a
   time with a 1 s pause, `maxlag=5`, and a descriptive User-Agent, and only for
   the files of the group edited in this run (see below).
 - **OSM API**: multi-fetch (`/nodes?nodes=…`) of only the elements that will be
-  edited, one changeset per run, at most `MAX_EDITS` (default 200) edits.
+  edited, one changeset per run, at most `MAX_EDITS` (default 100) edits.
 
 ## Small changesets
 
@@ -149,7 +149,7 @@ pytest -q
 ## GitHub Action
 
 `.github/workflows/fix-commons-thumbnails.yml` runs the tests and then the bot every
-3 hours (at minute 17), and can also be started manually (*Actions → Run workflow*).
+4 hours (at minute 17), and can also be started manually (*Actions → Run workflow*).
 
 Every run can be checked afterwards:
 

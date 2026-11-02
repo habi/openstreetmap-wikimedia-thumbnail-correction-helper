@@ -752,7 +752,7 @@ def main(argv=None) -> int:
         default=os.environ.get("AREA", "CH"),
         help='ISO3166-1 country code to restrict the Overpass query to (default CH, "world" = worldwide)',
     )
-    p.add_argument("--max-edits", type=int, default=int(os.environ.get("MAX_EDITS", 200)))
+    p.add_argument("--max-edits", type=int, default=int(os.environ.get("MAX_EDITS", 100)))
     p.add_argument("--report", help="write planned edits as JSON to this file")
     args = p.parse_args(argv)
 

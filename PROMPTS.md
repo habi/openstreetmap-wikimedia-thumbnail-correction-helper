@@ -85,3 +85,11 @@ the prompts it was built from, in order.
 ## 19
 
 > I now set the repository secret to enable the bot. Change the frequency of workflow runs to every 3 hours.
+
+## 20
+
+> Can you find out if the wrong image links have been added recently (e.g. in the last year or so) without impacting the Overpass API or the OpenStreetMap API much? I'd like to inform users that added now non-working links about them in a changeset comment.
+
+## 21
+
+> Change the default to 100, and run the GitHub action every 4 hours

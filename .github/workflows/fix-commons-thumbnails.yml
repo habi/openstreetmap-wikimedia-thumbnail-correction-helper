@@ -2,7 +2,7 @@ name: Fix Commons thumbnail links
 
 on:
   schedule:
-    - cron: "17 */3 * * *" # every 3 hours, at minute 17 (off the full hour to spread load)
+    - cron: "17 */4 * * *" # every 4 hours, at minute 17 (off the full hour to spread load)
   workflow_dispatch:
     inputs:
       apply:
@@ -14,7 +14,7 @@ on:
         default: "CH"
       max_edits:
         description: "Maximum number of edits"
-        default: "200"
+        default: "100"
 
 concurrency:
   group: osm-bot
@@ -48,7 +48,7 @@ jobs:
         env:
           OSM_ACCESS_TOKEN: ${{ secrets.OSM_ACCESS_TOKEN }}
           AREA: ${{ inputs.area || vars.AREA || 'CH' }}
-          MAX_EDITS: ${{ inputs.max_edits || vars.MAX_EDITS || '200' }}
+          MAX_EDITS: ${{ inputs.max_edits || vars.MAX_EDITS || '100' }}
           CHANGESET_DESCRIPTION_URL: ${{ vars.CHANGESET_DESCRIPTION_URL }}
           # Scheduled runs upload only once BOT_ENABLED is "true" (repository variable or secret).
           APPLY: ${{ (github.event_name == 'schedule' && (vars.BOT_ENABLED == 'true' || secrets.BOT_ENABLED == 'true')) || inputs.apply == true }}
