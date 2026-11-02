@@ -93,3 +93,7 @@ the prompts it was built from, in order.
 ## 21
 
 > Change the default to 100, and run the GitHub action every 4 hours
+
+## 22
+
+> Starting in the action log and summary where a comment would happen is great. The wording should absolutely not lay any blame on the editing person, but notify them of the change at Wikimedia Commons. Are there any links added that were already broken? Otherwise the cutoff of a year *before* the change took effect is a good date.

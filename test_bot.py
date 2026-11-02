@@ -278,3 +278,57 @@ def test_other_images_plan():
     # image=* is kept (fixed), or no further image tags: nothing to flag
     assert other_images_plan("way/1", {**tags, "wikimedia_commons": "Category:X"}, {"image": "x"}) is None
     assert other_images_plan("way/1", {"image": THUMB}, changes) is None
+
+
+class FakeResponse:
+    status_code = 200
+
+    def __init__(self, content):
+        self.content = content.encode()
+
+    def raise_for_status(self):
+        pass
+
+
+class FakeSession:
+    def __init__(self, content):
+        self.content = content
+
+    def request(self, method, url, **kw):
+        return FakeResponse(self.content)
+
+
+def test_link_added_in_finds_first_version_with_current_value():
+    from bot import link_added_in
+
+    history = (
+        "<osm>"
+        '<node id="1" version="1" changeset="10" user="a" timestamp="2020-01-01T00:00:00Z"/>'
+        f'<node id="1" version="2" changeset="20" user="b" timestamp="2025-12-25T00:00:00Z"><tag k="image" v="{THUMB}"/></node>'
+        f'<node id="1" version="3" changeset="30" user="c" timestamp="2026-05-01T00:00:00Z"><tag k="image" v="{THUMB}"/><tag k="name" v="x"/></node>'
+        "</osm>"
+    )
+    added = link_added_in(FakeSession(history), "node", 1, THUMB)
+    assert (added.get("changeset"), added.get("user")) == ("20", "b")
+
+
+def test_comment_text_explains_without_blame():
+    from bot import Notice, comment_text
+
+    n = Notice(176494545, "Pudu", "2025-12-27T10:00:00Z", ["node/419326591", "node/6521830338"])
+    text = comment_text(n, 123)
+    assert text.startswith("Hello Pudu,")
+    assert "Wikimedia Commons" in text and "Since April 2026" in text
+    assert "these links worked fine" in text
+    assert "Nothing needs to be done on your side" in text
+    assert "https://www.openstreetmap.org/changeset/123" in text
+    for ref in n.refs:
+        assert f"- https://www.openstreetmap.org/{ref}" in text
+    for word in ("wrong", "mistake", "error", "incorrect", "should not", "shouldn't"):
+        assert word not in text.lower()
+    # added after the restriction: don't claim they worked
+    late = Notice(1, "x", "2026-05-01T00:00:00Z", ["node/1"])
+    assert "worked fine" not in comment_text(late)
+    assert "the link on this element was updated" in comment_text(late)
+    assert "the links on these elements were updated" in text
+    assert "the bot's changeset" in comment_text(late)

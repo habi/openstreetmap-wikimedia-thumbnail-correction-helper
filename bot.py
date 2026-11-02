@@ -472,6 +472,70 @@ def other_images_plan(ref: str, tags: dict[str, str], changes: dict[str, str | N
     return "\n".join([osm_url(ref), *diff_lines(tags, changes)])
 
 
+# --- Notifying mappers --------------------------------------------------------
+#
+# Mappers who added a now-broken link recently get (for now: would get) a friendly
+# comment on the changeset where they added it. Wikimedia started refusing
+# non-standard thumbnail widths on 2026-04-23 (T414805); links added up to a year
+# before that are considered recent.
+
+RESTRICTION_DATE = "2026-04-23"
+NOTIFY_SINCE = "2025-04-23"
+README_URL = REPO_URL + "#readme"
+
+
+@dataclass
+class Notice:
+    changeset: int
+    user: str
+    added: str  # timestamp of the version that added the link
+    refs: list[str] = field(default_factory=list)
+
+
+def link_added_in(s: requests.Session, kind: str, id_: int, image: str) -> ET.Element | None:
+    """The version of the element in which image=* got its current value."""
+    r = request_with_retry(s, "GET", f"{OSM_API}/{kind}/{id_}/history", timeout=60)
+    first = None
+    for version in reversed(list(ET.fromstring(r.content))):
+        if not any(t.get("k") == "image" and t.get("v") == image for t in version.findall("tag")):
+            break
+        first = version
+    return first
+
+
+def comment_text(notice: Notice, bot_changeset: int | None = None) -> str:
+    """Changeset comment for a mapper who added links that are now broken. Explains
+    the change at Wikimedia; does not suggest the mapper did anything wrong."""
+    elements = "\n".join(f"- {osm_url(ref)}" for ref in notice.refs)
+    where = (
+        f"https://www.openstreetmap.org/changeset/{bot_changeset}"
+        if bot_changeset
+        else "the bot's changeset"
+    )
+    one = len(notice.refs) == 1
+    before = (
+        f" When you added {'it, this link' if one else 'them, these links'} worked fine."
+        if notice.added[:10] < RESTRICTION_DATE
+        else ""
+    )
+    return (
+        f"Hello {notice.user},\n\n"
+        "thank you for adding photos to OpenStreetMap! This is a short note about a change at "
+        "Wikimedia Commons that affects image links you added in this changeset.\n\n"
+        "Since April 2026, Wikimedia Commons only serves thumbnails "
+        "(upload.wikimedia.org/…/thumb/…) in a few standard widths; links to other widths "
+        f"no longer show the picture.{before} Nothing needs to be done on your side.\n\n"
+        f"To keep the {'photo' if one else 'photos'} visible, the "
+        f"{'link on this element was' if one else 'links on these elements were'} updated in {where}, "
+        "to the file's page on Commons (or moved to wikimedia_commons=*), which also shows the "
+        "author and license:\n"
+        f"{elements}\n\n"
+        "For future edits, a link to the Commons file page, or wikimedia_commons=File:…, keeps "
+        f"working. More background: {README_URL}\n\n"
+        "This is an automated note; feel free to reply here if you have questions."
+    )
+
+
 def fetch_osm_elements(s: requests.Session, kind: str, ids: list[int]) -> list[ET.Element]:
     out = []
     for i in range(0, len(ids), 100):
@@ -500,6 +564,7 @@ class Report:
     unchecked: int  # not looked at because of --max-edits
     svg: list[str] = field(default_factory=list)  # SVG thumbnails (often logos), not edited
     other_images: list[str] = field(default_factory=list)  # would need image:0 -> image, see #2
+    notices: dict[int, Notice] = field(default_factory=dict)  # changeset -> mapper to notify
     bbox: tuple[float, float, float, float] | None = None  # of the edits
 
 
@@ -592,6 +657,17 @@ def plan_edits(s: requests.Session, candidates: list[dict], max_edits: int) -> R
             report.other_images.append(plan)
             continue
         report.edits.append(Edit(elem, old, changes))
+        # Who added the link? Only elements changed since NOTIFY_SINCE can have it from
+        # then, so the history (one request) is only fetched for those.
+        if elem.get("timestamp", "") >= NOTIFY_SINCE:
+            time.sleep(0.5)
+            added = link_added_in(s, elem.tag, int(elem.get("id")), old)
+            if added is not None and added.get("timestamp", "") >= NOTIFY_SINCE:
+                cs = int(added.get("changeset"))
+                notice = report.notices.setdefault(
+                    cs, Notice(cs, added.get("user", "?"), added.get("timestamp"))
+                )
+                notice.refs.append(ref)
     for key in sorted(set(broken) - found):
         report.changed.append(f"{osm_url(f'{key[0]}/{key[1]}')}  deleted since the Overpass snapshot")
     if report.edits:
@@ -631,6 +707,7 @@ def write_job_summary(report: Report, area: str, applied: bool, changeset: int |
         f"| skipped, changed in OSM meanwhile | {len(report.changed)} |",
         f"| not edited, SVG thumbnail (possibly a logo) | {len(report.svg)} |",
         f"| not edited, has further `image:*` tags | {len(report.other_images)} |",
+        f"| changesets to comment on (link added since {NOTIFY_SINCE}) | {len(report.notices)} |",
         f"| not checked this run (limit reached) | {report.unchecked} |",
         "",
     ]
@@ -655,6 +732,25 @@ def write_job_summary(report: Report, area: str, applied: bool, changeset: int |
         f"`image` would be removed, but the element has more image tags; skipped for now ([#2]({issues}/2)).",
         report.other_images,
     )
+    if report.notices:
+        out += [
+            f"### Changeset comments that would be posted ({len(report.notices)})",
+            "",
+            f"These links were added since {NOTIFY_SINCE}, a year before Wikimedia restricted "
+            f"thumbnail widths ({RESTRICTION_DATE}). Not posted yet, only shown here.",
+            "",
+        ]
+        for n in report.notices.values():
+            out += [
+                f"<details><summary>changeset <a href=\"https://www.openstreetmap.org/changeset/{n.changeset}\">"
+                f"{n.changeset}</a> by {n.user}, {n.added[:10]}, {len(n.refs)} element(s)</summary>",
+                "",
+                "```text",
+                comment_text(n, changeset),
+                "```",
+                "</details>",
+                "",
+            ]
     if report.edits:
         out += ["### " + ("Edits" if applied else "Edits that would be made"), ""]
         out += ["| element | width | old `image` (broken) | new tags |", "|---|---:|---|---|"]
@@ -789,11 +885,19 @@ def main(argv=None) -> int:
     else:
         log_group(f"Would edit, dry run ({len(edits)})", edit_lines(edits))
 
+    log_group(
+        f"Would comment on changesets, links added since {NOTIFY_SINCE} ({len(report.notices)})",
+        [
+            f"https://www.openstreetmap.org/changeset/{n.changeset}  by {n.user}, {n.added[:10]}\n"
+            + "\n".join(f"    {line}" for line in comment_text(n, cs_id).splitlines())
+            for n in report.notices.values()
+        ],
+    )
     log(
         f"\nSummary for area {args.area}: "
         f"{len(edits)} {'edited' if cs_id else 'to edit'}, "
         f"{len(report.working)} still working, {len(report.not_found)} file missing, "
-        f"{len(report.changed)} changed meanwhile, {len(report.svg)} SVG not edited, {len(report.other_images)} with further image:* not edited, {report.unchecked} not checked (limit reached)."
+        f"{len(report.changed)} changed meanwhile, {len(report.svg)} SVG not edited, {len(report.other_images)} with further image:* not edited, {report.unchecked} not checked (limit reached), {len(report.notices)} changeset comments due."
     )
     if cs_id:
         log(f"Changeset: https://www.openstreetmap.org/changeset/{cs_id}")

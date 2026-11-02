@@ -112,6 +112,21 @@ Commons itself has no "is a logo" flag. Hints are the file type (SVG), categorie
 such as *SVG logos of Aral AG*, the restriction *trademarked*, or the structured-data
 statement *depicts: logo*.
 
+## Notifying mappers (not active yet)
+
+Wikimedia started refusing non-standard thumbnail widths on 2026-04-23
+([T414805](https://phabricator.wikimedia.org/T414805)). Mappers who added a
+now-broken link up to a year before that (since 2025-04-23) should get a friendly
+comment on the changeset where they added it, explaining the change at Wikimedia
+Commons; it does not suggest they did anything wrong. For now the comments are
+**only shown** in the log and the run summary, not posted.
+
+To find out who added a link with little load, the bot uses the last-modified date
+of each element it edits (already part of the OSM API response); only for elements
+changed since 2025-04-23 it fetches the element's history (one request) to find
+the version that added the current `image=*` value. In Switzerland, about 1 % of
+the broken links were added in that window, and none after 2026-04-23.
+
 ## Keeping load low
 
 - **Overpass**: one query per run, limited to a country (`AREA`, default `CH`),
