@@ -116,7 +116,7 @@ statement *depicts: logo*.
 
 - **Overpass**: one query per run, limited to a country (`AREA`, default `CH`),
   `out tags center;` only (tags plus one point per element, no full geometry).
-  Retries with backoff on 429/5xx. Runs weekly.
+  Retries with backoff on 429/5xx. Runs every 3 hours.
 - **Wikimedia**: whether a thumbnail works comes from its width, so no thumbnail is
   ever downloaded. The Action API is queried 50 files per request, one request at a
   time with a 1 s pause, `maxlag=5`, and a descriptive User-Agent, and only for
@@ -149,7 +149,7 @@ pytest -q
 ## GitHub Action
 
 `.github/workflows/fix-commons-thumbnails.yml` runs the tests and then the bot every
-Monday, and can also be started manually (*Actions → Run workflow*).
+3 hours (at minute 17), and can also be started manually (*Actions → Run workflow*).
 
 Every run can be checked afterwards:
 
@@ -181,8 +181,8 @@ Setup:
 2. Optional repository variables: `AREA` (ISO 3166-1 code or `world`), `MAX_EDITS`,
    `CHANGESET_DESCRIPTION_URL` (link to the bot's OSM wiki page, added to each
    changeset).
-3. Scheduled runs are **dry runs** until you set the repository variable
-   **`BOT_ENABLED=true`**. Manual runs upload only if *apply* is ticked.
+3. Scheduled runs are **dry runs** until you set **`BOT_ENABLED=true`**, as a
+   repository variable (visible in the settings) or secret. Manual runs upload only if *apply* is ticked.
 
 > ⚠️ Before enabling uploads, follow the OSM
 > [Automated Edits code of conduct](https://wiki.openstreetmap.org/wiki/Automated_Edits_code_of_conduct):

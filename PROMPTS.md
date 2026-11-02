@@ -81,3 +81,7 @@ the prompts it was built from, in order.
 ## 18
 
 > Can you include the same style of reporting for the commit before, concerning the SVG logos?
+
+## 19
+
+> I now set the repository secret to enable the bot. Change the frequency of workflow runs to every 3 hours.
